@@ -136,7 +136,7 @@
       "id": "paraformer-yue-offline",
       "name": "Paraformer 三语",
       "langs": "中文 / 粤语 / 英文",
-      "note": "粤语场景比 SenseVoice 专。下载 1GB（包里带了一份用不上的 fp32 权重，解压后会删掉，实际占 234MB）。",
+      "note": "粤语场景比 SenseVoice 专。要下 1GB（包里带了一份用不上的 fp32 权重，解压时会直接跳过），装完占 234MB。",
       "kind": "offline-paraformer",
       "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-trilingual-zh-cantonese-en.tar.bz2",
       "dir": "sherpa-onnx-paraformer-trilingual-zh-cantonese-en",

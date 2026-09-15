@@ -105,22 +105,6 @@ async function download(url, outPath) {
   process.stdout.write('\r' + ' '.repeat(50) + '\r')
 }
 
-function extract(archivePath, targetDir) {
-  mkdirSync(targetDir, { recursive: true })
-  let r = spawnSync('tar', ['-xjf', archivePath, '-C', targetDir, '--strip-components=1'], {
-    stdio: 'inherit'
-  })
-  if (r.status === 0) return
-
-  console.log('    tar 解压失败，尝试 7z…')
-  const tmpTar = archivePath.replace(/\.bz2$/, '')
-  r = spawnSync('7z', ['x', '-y', `-o${dirname(archivePath)}`, archivePath], { stdio: 'inherit' })
-  if (r.status !== 0) throw new Error('解压失败：系统里既没有可用的 tar 也没有 7z')
-  r = spawnSync('7z', ['x', '-y', `-o${targetDir}`, tmpTar], { stdio: 'inherit' })
-  if (r.status !== 0) throw new Error('解压 tar 失败')
-  rmSync(tmpTar, { force: true })
-  console.log('    注意：7z 路径不会自动 strip 顶层目录，如有多余层级请手动调整。')
-}
 
 function prune(dir, patterns) {
   for (const p of patterns) {
@@ -172,7 +156,11 @@ async function main() {
       const tmp = join(tmpdir(), `vocal-${item.id}.tar.bz2`)
       await download(item.url, tmp)
       console.log(`    解压中（${human(statSync(tmp).size)}）…`)
-      extract(tmp, targetDir)
+      // 和应用内下载器共用同一份实现：系统 tar 优先，不行退到纯 JS。
+      // Windows 自带的 bsdtar 不一定带 bzip2 解压器，以前这里靠 7z 躲，
+      // 但应用里不能假设用户装了 7z，索性两边都用能自洽的那条路。
+      const { extractTarBz2 } = await import('./extract-tar-bz2.mjs')
+      await extractTarBz2(tmp, targetDir, { exclude: item.prune })
       rmSync(tmp, { force: true })
       prune(targetDir, item.prune)
     }

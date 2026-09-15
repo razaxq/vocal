@@ -14,7 +14,6 @@ import { mkdir, rm, stat, readdir, readFile, writeFile, rename } from 'node:fs/p
 import { existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
-import { spawn } from 'node:child_process'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { ModelEntry } from '@shared/modelRegistry'
@@ -55,7 +54,8 @@ export class ModelDownloader {
       this.onProgress({ id: entry.id, phase: 'downloading', received: 0, total: 0, ...p })
 
     const targetDir = join(this.root, entry.dir)
-    const tmpFile = join(tmpdir(), `vocal-model-${entry.id}-${Date.now()}`)
+    // 带上真实扩展名：有些解压器靠它判断格式，而且出问题时用户自己也能找到
+    const tmpFile = join(tmpdir(), `vocal-model-${entry.id}-${Date.now()}.tar.bz2`)
 
     try {
       emit({ phase: 'queued' })
@@ -95,13 +95,16 @@ export class ModelDownloader {
       } else {
         emit({ phase: 'extracting', received: total, total })
         await mkdir(targetDir, { recursive: true })
-        await extractTarBz2(tmpFile, targetDir)
+        // prune 直接当成解压时的排除项：归档里常同时带 fp32 和 int8 两份权重，
+        // 我们只用 int8。三语 Paraformer 那个 fp32 有 831MB，
+        // 「先老实写下来再删掉」纯属折磨磁盘。
+        const { extractTarBz2 } = await import('../../../../scripts/extract-tar-bz2.mjs')
+        await extractTarBz2(tmpFile, targetDir, { exclude: entry.prune })
         await rm(tmpFile, { force: true })
       }
 
-      /* ---------- 剔除冗余 ---------- */
-      // 归档里常同时带 fp32 和 int8 两份权重，我们只用 int8。
-      // 不删的话磁盘占用是三倍（流式那个包解压出来 1.5GB，剔完 230MB）。
+      /* ---------- 兜底再删一次 ---------- */
+      // 解压时已经排除过了，这里是为了老目录（之前版本下过的）也能被清干净
       for (const p of entry.prune) {
         await rm(join(targetDir, p), { recursive: true, force: true })
       }
@@ -146,26 +149,6 @@ export class ModelDownloader {
 }
 
 /** 系统 tar 解压 .tar.bz2，剥掉顶层目录。 */
-function extractTarBz2(archive: string, targetDir: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const p = spawn('tar', ['-xjf', archive, '-C', targetDir, '--strip-components=1'], {
-      windowsHide: true
-    })
-    let stderr = ''
-    p.stderr?.on('data', (d) => { stderr += String(d) })
-
-    p.on('error', () => {
-      reject(new Error(
-        '系统里找不到 tar。Windows 10 1803 及以上自带，'
-        + '老系统请安装 7-Zip 或手动解压到模型目录。'
-      ))
-    })
-    p.on('close', (code) => {
-      if (code === 0) resolve()
-      else reject(new Error(`解压失败（tar 退出码 ${code}）${stderr ? `：${stderr.slice(0, 200)}` : ''}`))
-    })
-  })
-}
 
 async function dirSize(dir: string): Promise<number> {
   let total = 0
