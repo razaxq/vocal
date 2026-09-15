@@ -140,24 +140,23 @@
   }
 
   /*
-   * 文字要能选中、能复制 —— 数据目录路径、模型名、提示词这些
-   * 本来就是给人拷走的。Chromium 对 button 默认 user-select: none，
-   * 而这个界面里点击目标很多（导航项、模型行），于是整屏看起来
-   * 「哪都选不中」。所以这里反过来写：正文显式可选，
-   * 只有点击目标和拖拽区不可选（在点击目标里拖选很碍事）。
+   * 界面文字一律不可选中。
+   *
+   * 这是个桌面应用，不是网页：标签、说明、路径、状态都是界面的一部分，
+   * 拖蓝一片只会显得像选错了东西。原生 Windows 设置界面也是这样。
+   *
+   * 例外只有真正的输入控件 —— 那不是「选中界面文字」，
+   * 那是编辑自己填的内容（API Key、热词、提示词），不能一起禁掉。
    */
   body {
-    -webkit-user-select: text;
-    user-select: text;
-    cursor: default;
-  }
-  button, [role="button"], [role="radio"], [role="option"], [role="switch"], .drag {
     -webkit-user-select: none;
     user-select: none;
+    cursor: default;
   }
-  input, textarea, code, pre {
+  input, textarea {
     -webkit-user-select: text;
     user-select: text;
+    cursor: text;
   }
 
   ::placeholder { color: var(--fg-subtle); }
