@@ -17,12 +17,12 @@
 
 ## 下载
 
-去 [Releases](https://github.com/razaxq/vocal/releases) 拿最新版，两个包挑一个：
+去 [Releases](https://github.com/razaxq/vocal/releases) 下载最新版，推荐便携版：解压后运行 `Vocal.exe` 即可，支持自动更新。
 
 | 包 | 适合 | 你的数据在哪 | 自动更新 |
 |---|---|---|---|
-| **`Vocal-Setup-x.y.z.exe`** | 大多数人 | `%APPDATA%\Vocal` | ✅ 启动检查，点击更新 |
-| `Vocal-x.y.z-win.zip` | 想随身带、不想装东西 | 解压目录里的 `data/` | ✅ 启动检查，点击更新 |
+| **`Vocal-x.y.z-win.zip`（推荐）** | 解压即用，方便迁移或随身携带 | 解压目录里的 `data/` | ✅ 启动检查，点击更新 |
+| `Vocal-Setup-x.y.z.exe` | 希望通过安装向导安装 | `%APPDATA%\Vocal` | ✅ 启动检查，点击更新 |
 
 > **第一次运行会弹 SmartScreen 蓝框**，点「更多信息 → 仍要运行」。
 > 因为没买代码签名证书（一年几百刀），不是因为程序有问题。介意的话可以自己 clone 下来构建。
