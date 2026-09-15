@@ -8,7 +8,7 @@
  */
 import { BrowserWindow, screen, app } from 'electron'
 import { join } from 'node:path'
-import { getCaretScreenRect } from '@main/win32/user32'
+import { getCaretScreenRect, getForegroundWindowRect } from '@main/win32/user32'
 
 /**
  * 面板有两个尺寸。
@@ -90,8 +90,15 @@ export function createPanelWindow(compact: boolean): BrowserWindow {
 }
 
 /**
- * 把面板放到光标附近；拿不到 caret 就退化到「当前屏幕底部居中偏上」。
- * 后者其实是多数场景的实际落点 —— Chrome / VS Code / 终端都不上报 caret。
+ * 把面板放到文字光标附近。
+ *
+ * 「拿得到光标」靠的是 Win32 的 caret —— 一个应用得真的调用 CreateCaret
+ * 才有。记事本、Office、Win32 原生输入框有；Chrome、Electron 应用
+ * （VS Code、各种 IM）、UWP、终端都是自己画光标，系统层面查不到。
+ * 所以**在多数现代应用里拿不到是正常的，不是坏了**。
+ *
+ * 三级回落：文字光标 → 当前窗口底部居中 → 屏幕底部居中。
+ * 跑 `npm run m0:caret` 可以看当前这个应用到底属于哪一类。
  */
 export function positionPanel(win: BrowserWindow, followCaret: boolean, compact: boolean): void {
   const { w: W, h: H } = panelSize(compact)
@@ -107,8 +114,17 @@ export function positionPanel(win: BrowserWindow, followCaret: boolean, compact:
     x = caret.x - W / 2
     y = caret.y + caret.h + 8
   } else {
-    x = dx + (dw - W) / 2
-    y = dy + dh - H - 96
+    // 拿不到光标就退到「当前窗口」底部居中，而不是「整块屏幕」底部居中。
+    // 多显示器、或者窗口只占屏幕一角的时候，后者会把面板甩到另一块屏幕
+    // 或者半个屏幕之外 —— 用户的视线根本不在那儿。
+    const win32 = safeWindowRect()
+    if (win32) {
+      x = win32.x + (win32.w - W) / 2
+      y = win32.y + win32.h - H - 48
+    } else {
+      x = dx + (dw - W) / 2
+      y = dy + dh - H - 96
+    }
   }
 
   // 夹到当前显示器工作区内
@@ -120,4 +136,8 @@ export function positionPanel(win: BrowserWindow, followCaret: boolean, compact:
 
 function safeCaret(): { x: number; y: number; w: number; h: number } | null {
   try { return getCaretScreenRect() } catch { return null }
+}
+
+function safeWindowRect(): { x: number; y: number; w: number; h: number } | null {
+  try { return getForegroundWindowRect() } catch { return null }
 }

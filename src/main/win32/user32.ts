@@ -121,6 +121,11 @@ export const ClientToScreen = user32.func(
   ['uintptr', koffi.inout(koffi.pointer(POINT))]
 )
 
+export const GetWindowRect = user32.func(
+  '__stdcall', 'GetWindowRect', 'int32',
+  ['uintptr', koffi.out(koffi.pointer(RECT))]
+)
+
 export const MapVirtualKeyW = user32.func(
   '__stdcall', 'MapVirtualKeyW', 'uint32', ['uint32', 'uint32']
 )
@@ -206,6 +211,24 @@ export function getForegroundInfo(): {
  * 拿不到时返回 null —— 很多应用（Chrome、Electron、终端）不上报 caret，
  * 这时调用方应退化到「跟随鼠标」或「屏幕底部居中」。
  */
+/**
+ * 前台窗口在屏幕上的矩形。
+ *
+ * 拿不到光标位置时用它兜底：把面板放在**你正在用的那个窗口**下方，
+ * 而不是屏幕正下方。多显示器、或者窗口只占屏幕一角的时候，
+ * 差别很明显 —— 后者会把面板甩到另一块屏幕或者半个屏幕之外。
+ */
+export function getForegroundWindowRect(): { x: number; y: number; w: number; h: number } | null {
+  const hwnd = GetForegroundWindow() as number
+  if (!hwnd) return null
+  const r: Record<string, number> = {}
+  if (!GetWindowRect(hwnd, r)) return null
+  const w = (r.right ?? 0) - (r.left ?? 0)
+  const h = (r.bottom ?? 0) - (r.top ?? 0)
+  if (w <= 0 || h <= 0) return null
+  return { x: r.left ?? 0, y: r.top ?? 0, w, h }
+}
+
 export function getCaretScreenRect(): { x: number; y: number; w: number; h: number } | null {
   const { threadId } = getForegroundInfo()
   if (!threadId) return null

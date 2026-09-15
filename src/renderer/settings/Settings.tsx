@@ -448,11 +448,18 @@ function AppearanceTab({ cfg, patch }: TabProps): React.ReactElement {
       </Section>
 
       <Section title="悬浮面板">
-        <Row label="跟随光标" hint="部分应用不上报光标位置，会退到屏幕底部">
+        <Row label="跟随光标">
           <Toggle
             checked={cfg.ui.followCaret}
             onChange={(b) => patch({ ui: { ...cfg.ui, followCaret: b } })}
           />
+          <div className="mt-2">
+            <Note>
+              只有用 Win32 原生输入框的应用才查得到光标位置（记事本、Office 这类）。
+              Chrome、VS Code、各种 IM 都是自己画光标，系统层面查不到 ——
+              这些应用里面板会落在窗口底部居中。
+            </Note>
+          </div>
         </Row>
       </Section>
     </Page>
