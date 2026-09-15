@@ -13,7 +13,7 @@
 import { useEffect, useState } from 'react'
 import type { AppConfig, HistoryStats } from '@shared/ipc'
 import type { Transcript } from '@shared/types'
-import { MODEL_NONE } from '@shared/modelRegistry'
+import { MODEL_NONE, findModel } from '@shared/modelRegistry'
 import {
   Page, Section, Row, Select, Input, Num, Toggle, Note, LineList, Textarea,
   WindowControls, AppMark
@@ -260,8 +260,10 @@ function AsrTab({ cfg, patch }: TabProps): React.ReactElement {
         />
         <Note>
           {(() => {
-            const st = cfg.models.streaming.startsWith('zipformer')
-            const off = cfg.models.offline.startsWith('zipformer')
+            // 按注册表里的 kind 判断，不靠 id 的字符串前缀 ——
+            // 加个新模型改个名字就悄悄失准的判断不要写
+            const st = findModel('streaming', cfg.models.streaming)?.kind === 'online-zipformer'
+            const off = findModel('offline', cfg.models.offline)?.kind === 'offline-transducer'
             if (st && off) return '两层模型都支持热词加权，填进去的词在识别时会被优先考虑。'
             if (st || off) {
               return `当前只有${st ? '流式' : '定稿'}模型吃热词。另一层选 Zipformer 才能两层都加权。`

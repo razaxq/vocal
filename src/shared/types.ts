@@ -89,13 +89,14 @@ export interface StreamingModelPaths {
 }
 
 /**
- * 定稿模型有两种形状，对应 sherpa 的两套配置：
- *   sense-voice —— CTC，一个 model 文件；自带 ITN，但引擎层面没有热词
- *   transducer  —— encoder + decoder + joiner；**支持热词**
+ * 定稿模型有三种形状，对应 sherpa 的三套配置：
+ *   sense-voice —— CTC，单文件。自带 ITN（「二零二六年」→「2026 年」），没有热词
+ *   paraformer  —— CTC，单文件。没有 ITN，也没有热词
+ *   transducer  —— encoder + decoder + joiner。**支持热词**，但没有 ITN
  * kind 决定 finalize.ts 走哪个分支，写错 sherpa 会直接报「没有给出任何模型」。
  */
 export interface OfflineModelPaths {
-  kind: 'offline-sense-voice' | 'offline-transducer'
+  kind: 'offline-sense-voice' | 'offline-paraformer' | 'offline-transducer'
   /** sense-voice 用 */
   model: string
   /** transducer 用 */

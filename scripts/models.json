@@ -131,6 +131,47 @@
         "from": "bbpe.model",
         "to": "bbpe.vocab"
       }
+    },
+    {
+      "id": "paraformer-yue-offline",
+      "name": "Paraformer 三语",
+      "langs": "中文 / 粤语 / 英文",
+      "note": "粤语场景比 SenseVoice 专。下载 1GB（包里带了一份用不上的 fp32 权重，解压后会删掉，实际占 234MB）。",
+      "kind": "offline-paraformer",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-trilingual-zh-cantonese-en.tar.bz2",
+      "dir": "sherpa-onnx-paraformer-trilingual-zh-cantonese-en",
+      "approxMB": 1010,
+      "files": {
+        "model": "model.int8.onnx",
+        "tokens": "tokens.txt"
+      },
+      "prune": [
+        "model.onnx",
+        "test_wavs",
+        "tokens.json",
+        "config.yaml",
+        "am.mvn",
+        "add-model-metadata.py",
+        "generate-tokens.py",
+        "quantize-model.py"
+      ]
+    },
+    {
+      "id": "paraformer-zh-dialect",
+      "name": "Paraformer 川渝方言",
+      "langs": "中文（四川 / 重庆话）",
+      "note": "一万小时方言数据微调。说普通话的话别选它，没有优势。",
+      "kind": "offline-paraformer",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-int8-2025-10-07.tar.bz2",
+      "dir": "sherpa-onnx-paraformer-zh-int8-2025-10-07",
+      "approxMB": 230,
+      "files": {
+        "model": "model.int8.onnx",
+        "tokens": "tokens.txt"
+      },
+      "prune": [
+        "test_wavs"
+      ]
     }
   ],
   "punct": [

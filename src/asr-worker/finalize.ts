@@ -72,6 +72,7 @@ function init(m: ModelPaths, c: CleanupConfig, mode: 'full' | 'punct-only', hw: 
  * 两种定稿模型，两套配置形状：
  *   sense-voice —— CTC 单文件。自带 ITN（「二零二六年三点五万」→「2026 年 3.5 万」），
  *                  但引擎层面没有热词这条路径。
+ *   paraformer  —— CTC 单文件。没有 ITN，也没有热词；胜在有粤语和方言的专门版本。
  *   transducer  —— encoder + decoder + joiner。**支持热词**，体积小得多，
  *                  代价是没有 ITN。
  * 写错分支 sherpa 会直接报「没有给出任何模型」，不会静默回落。
@@ -100,6 +101,21 @@ function buildRecognizer(m: ModelPaths): void {
       decodingMethod: wantHotwords ? 'modified_beam_search' : 'greedy_search',
       maxActivePaths: 4,
       hotwordsScore: HOTWORDS_SCORE
+    })
+    return
+  }
+
+  if (off.kind === 'offline-paraformer') {
+    // 单文件 CTC，和 SenseVoice 同类但没有 ITN，也没有热词
+    recognizer = new sherpa.OfflineRecognizer({
+      featConfig: { sampleRate: 16000, featureDim: 80 },
+      modelConfig: {
+        paraformer: { model: off.model },
+        tokens: off.tokens,
+        numThreads: 2,
+        provider: 'cpu',
+        debug: 0
+      }
     })
     return
   }
