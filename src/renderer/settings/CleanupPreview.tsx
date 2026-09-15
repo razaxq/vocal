@@ -14,9 +14,9 @@ import type { AppConfig } from '@shared/ipc'
 import { Textarea, Button } from './ui'
 
 const SAMPLES = [
-  '嗯，那个，我我我觉得这个方案不太行，就是说性能上刚刚测下来差挺多的。',
-  '呃，然后呢，我们上线了，对吧，然后监控看着还行。',
-  'um, I mean, 这个 bug 在 useEffect 里，基本上就是依赖数组写漏了。'
+  '嗯，那个，我我我想约明天下午三点，刚刚已经和同事确认过了。',
+  '呃，然后呢，我们周末去公园，对吧，记得带上水。',
+  'um, I mean, 我会在 meeting 结束后发邮件给你。'
 ]
 
 export function CleanupPreview({ cfg }: { cfg: AppConfig }): React.ReactElement {
@@ -37,7 +37,7 @@ export function CleanupPreview({ cfg }: { cfg: AppConfig }): React.ReactElement 
         value={input}
         rows={3}
         onChange={setInput}
-        placeholder="粘一段识别结果进来看看会被清成什么样"
+        placeholder="输入文字，预览清理效果"
       />
 
       <div className="flex flex-wrap gap-1.5">
@@ -47,20 +47,19 @@ export function CleanupPreview({ cfg }: { cfg: AppConfig }): React.ReactElement 
       </div>
 
       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
-        <div className="mb-1 text-[11px] font-medium text-[var(--fg-subtle)]">清洗后</div>
+        <div className="mb-1 text-[11px] font-medium text-[var(--fg-subtle)]">清理后</div>
         {result.text ? (
           <p className="text-[13px] leading-relaxed text-[var(--fg)]">{result.text}</p>
         ) : (
-          <p className="text-[13px] italic text-[var(--fg-subtle)]">（全被清掉了 —— 力度太猛）</p>
+          <p className="text-[13px] italic text-[var(--fg-subtle)]">{input.trim() ? '清理后无内容，可降低力度' : '请输入文字'}</p>
         )}
         <div className="mt-2 text-[11px] text-[var(--fg-subtle)]">
           {input.length} 字 → {result.text.length} 字
-          {result.removed > 0 && <span className="text-[var(--accent)]">　删了 {result.removed} 字</span>}
         </div>
       </div>
 
       {cfg.cleanup.level === 'off' && (
-        <p className="text-[11px] text-[var(--warn)]">清洗已关闭，上面是原样输出。</p>
+        <p className="text-[11px] text-[var(--warn)]">已关闭清理，保留原文</p>
       )}
     </div>
   )

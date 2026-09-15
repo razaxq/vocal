@@ -31,11 +31,11 @@ type Tab = 'hotkey' | 'asr' | 'cleanup' | 'polish' | 'inject' | 'general' | 'app
 
 /** 前五项是流水线，其余是应用设置。 */
 const PIPELINE: Array<[Tab, string]> = [
-  ['hotkey', '触发'],
+  ['hotkey', '快捷键'],
   ['asr', '识别'],
-  ['cleanup', '清洗'],
-  ['polish', '整理'],
-  ['inject', '上屏']
+  ['cleanup', '口语清理'],
+  ['polish', 'AI 整理'],
+  ['inject', '文字输入']
 ]
 const OTHER: Array<[Tab, string]> = [
   ['general', '通用'],
@@ -134,9 +134,9 @@ type TabProps = { cfg: AppConfig; patch: (p: Partial<AppConfig>) => Promise<void
 function HotkeyTab({ cfg, patch }: TabProps): React.ReactElement {
   const h = cfg.hotkey
   return (
-    <Page title="触发">
+    <Page title="快捷键">
       <Section>
-        <Row label="触发方式">
+        <Row label="录音方式">
           <Select
             value={h.mode}
             onChange={(v) => patch({ hotkey: { ...h, mode: v as never } })}
@@ -169,7 +169,7 @@ function HotkeyTab({ cfg, patch }: TabProps): React.ReactElement {
           </Row>
         )}
 
-        <Row label="防抖间隔" hint="忽略这段时间内的重复触发">
+        <Row label="重复按键间隔" hint="间隔过短时忽略重复按键">
           <Num
             value={h.debounceMs}
             min={0}
@@ -179,7 +179,7 @@ function HotkeyTab({ cfg, patch }: TabProps): React.ReactElement {
           />
         </Row>
 
-        <Row label="最短说话时长" hint="短于此值视为误触，直接丢弃">
+        <Row label="最短录音时长" hint="短于此时长不识别">
           <Num
             value={h.minHoldMs}
             min={0}
@@ -222,7 +222,7 @@ function AsrTab({ cfg, patch }: TabProps): React.ReactElement {
       <MicSection cfg={cfg} patch={patch} />
 
       <Section title="断句">
-        <Row label="停顿多久算一句" hint="调大一点，想措辞的停顿就不会被切断">
+        <Row label="停顿多久算一句" hint="调大可减少过早断句">
           <Num
             value={cfg.asr.endpointSilenceMs}
             min={400}
@@ -234,7 +234,7 @@ function AsrTab({ cfg, patch }: TabProps): React.ReactElement {
       </Section>
 
       <Section title="内存">
-        <Row label="空闲卸载模型" hint="0 = 一直常驻。卸载后下次按热键多等一两秒">
+        <Row label="空闲释放内存" hint="0 表示不释放；释放后首次识别稍慢">
           <Num
             value={cfg.asr.idleUnloadMin}
             min={0}
@@ -248,7 +248,7 @@ function AsrTab({ cfg, patch }: TabProps): React.ReactElement {
       <ModelGroup
         slot="streaming"
         title="流式模型"
-        hint="负责实时预览和断句。只关注最终文字时可选「不使用」，减少内存占用。"
+        hint="实时预览文字，关闭可节省内存"
         cfg={cfg} patch={patch} status={status} progress={progress}
         allowNone={cfg.models.offline !== MODEL_NONE}
       />
@@ -256,7 +256,7 @@ function AsrTab({ cfg, patch }: TabProps): React.ReactElement {
       <ModelGroup
         slot="offline"
         title="定稿模型"
-        hint="每句说完后重转写一遍，决定最终准确率。"
+        hint="说完后重新识别，生成最终文字"
         cfg={cfg} patch={patch} status={status} progress={progress}
         allowNone={cfg.models.streaming !== MODEL_NONE}
       />
@@ -264,15 +264,15 @@ function AsrTab({ cfg, patch }: TabProps): React.ReactElement {
       <ModelGroup
         slot="punct"
         title="标点模型"
-        hint="必需。没有它输出会是一长串不断句的文字。"
+        hint="自动补全标点，需下载"
         cfg={cfg} patch={patch} status={status} progress={progress} fixed
       />
 
-      <Section title="热词" hint="人名、术语、缩写。这些词永远不会被「清洗」当成口语词删掉。">
+      <Section title="热词" hint="填写常用人名、地名或术语">
         <LineList
           value={cfg.hotwords}
           rows={7}
-          placeholder={'Kubernetes\nsherpa-onnx\nLoRA'}
+          placeholder={'张晓明\n苏州工业园区\nVocal'}
           onChange={(hotwords) => patch({ hotwords })}
         />
         <Note>
@@ -281,11 +281,11 @@ function AsrTab({ cfg, patch }: TabProps): React.ReactElement {
             // 加个新模型改个名字就悄悄失准的判断不要写
             const st = findModel('streaming', cfg.models.streaming)?.kind === 'online-zipformer'
             const off = findModel('offline', cfg.models.offline)?.kind === 'offline-transducer'
-            if (st && off) return '两层模型都支持热词加权，填进去的词在识别时会被优先考虑。'
+            if (st && off) return '当前模型均支持优先识别热词。'
             if (st || off) {
-              return `当前只有${st ? '流式' : '定稿'}模型吃热词。另一层选 Zipformer 才能两层都加权。`
+              return `当前仅${st ? '流式' : '定稿'}模型支持优先识别热词。`
             }
-            return '热词现在只起保护作用（不被清洗删掉）。想让它真的提高识别率，模型要选 Zipformer —— Paraformer 和 SenseVoice 是 CTC 模型，引擎层面没有热词这条路径。'
+            return '当前模型不支持优先识别热词，可选择 Zipformer。'
           })()}
         </Note>
       </Section>
@@ -297,8 +297,8 @@ function AsrTab({ cfg, patch }: TabProps): React.ReactElement {
 
 function CleanupTab({ cfg, patch }: TabProps): React.ReactElement {
   return (
-    <Page title="清洗">
-      <Section title="口语清洗" hint="删掉「嗯 / 呃 / 那个」这类语气词和口吃重复。纯规则，离线也生效。">
+    <Page title="口语清理">
+      <Section hint="减少「嗯」「呃」等口头语和重复内容">
         <Row label="力度">
           <Select
             value={cfg.cleanup.level}
@@ -315,17 +315,17 @@ function CleanupTab({ cfg, patch }: TabProps): React.ReactElement {
           <Toggle
             checked={cfg.cleanup.protectHotwords}
             onChange={(b) => patch({ cleanup: { ...cfg.cleanup, protectHotwords: b } })}
-            label="热词表里的词不会被删"
+            label="清理时保留热词"
           />
         </Row>
-        <Row label="额外过滤词" hint="你自己的口头禅" stack>
+        <Row label="自定义口头语" stack>
           <LineList
             value={cfg.cleanup.extraFillers}
             rows={3}
             onChange={(extraFillers) => patch({ cleanup: { ...cfg.cleanup, extraFillers } })}
           />
         </Row>
-        <Row label="实时预览" stack>
+        <Row label="效果预览" stack>
           <CleanupPreview cfg={cfg} />
         </Row>
       </Section>
@@ -348,15 +348,15 @@ function PolishTab({ cfg, patch }: TabProps): React.ReactElement {
   const llmReady = cfg.llm.enabled && cfg.llm.apiKey.length > 0
 
   return (
-    <Page title="整理">
-      <Section title="书面化整理" hint="把口语句式改写成书面语、合并被停顿切碎的句子。需要联网。">
+    <Page title="AI 整理">
+      <Section hint="将口述整理为书面表达，需联网发送文字">
         <Row label="启用">
           <Toggle
             checked={on}
             onChange={(b) => patch({
               consolidation: { ...cfg.consolidation, mode: b ? 'onFinish' : 'off' }
             })}
-            label={on ? '开启' : '关闭，只做本地清洗'}
+            label={on ? '开启' : '关闭'}
           />
         </Row>
         {on && (
@@ -371,16 +371,16 @@ function PolishTab({ cfg, patch }: TabProps): React.ReactElement {
             ]}
             className="max-w-xs"
           />
-          {!llmReady && <div className="mt-2"><Note tone="warn">下面的接口还没配好，这一层不会生效。</Note></div>}
+          {!llmReady && <div className="mt-2"><Note tone="warn">请先配置并启用下方 AI 服务。</Note></div>}
         </Row>
-        <Row label="起步字数" hint="短于此值不整理">
+        <Row label="最少字数" hint="少于此字数不整理">
           <Num
             value={cfg.consolidation.minChars}
             suffix="字"
             onChange={(n) => patch({ consolidation: { ...cfg.consolidation, minChars: n } })}
           />
         </Row>
-        <Row label="最多替换" hint="超过就只留在历史里，不改已上屏的文字">
+        <Row label="自动替换上限" hint="超出时仅保存结果，不替换已输入文字">
           <Num
             value={cfg.consolidation.maxReplaceChars}
             suffix="字"
@@ -391,22 +391,22 @@ function PolishTab({ cfg, patch }: TabProps): React.ReactElement {
         )}
       </Section>
 
-      <Section title="接口" hint="任何 OpenAI 兼容端点。超时或出错自动回落到未整理的文本。">
+      <Section title="AI 服务" hint="支持 OpenAI 兼容服务；失败时保留原文">
         <Row label="启用">
           <Toggle
             checked={cfg.llm.enabled}
             onChange={(b) => patch({ llm: { ...cfg.llm, enabled: b } })}
-            label={llmReady ? '已配置' : '还需要填 API Key'}
+            label={!cfg.llm.apiKey ? '请填写 API Key' : cfg.llm.enabled ? '已启用' : '已关闭'}
           />
         </Row>
-        <Row label="Base URL">
+        <Row label="服务地址">
           <Input
             value={cfg.llm.baseUrl}
             onChange={(v) => patch({ llm: { ...cfg.llm, baseUrl: v } })}
             mono
           />
         </Row>
-        <Row label="API Key">
+        <Row label="密钥（API Key）">
           <Input
             type="password"
             value={cfg.llm.apiKey}
@@ -415,7 +415,7 @@ function PolishTab({ cfg, patch }: TabProps): React.ReactElement {
             placeholder="sk-…"
           />
         </Row>
-        <Row label="模型">
+        <Row label="模型名称">
           <Input
             value={cfg.llm.model}
             onChange={(v) => patch({ llm: { ...cfg.llm, model: v } })}
@@ -423,21 +423,23 @@ function PolishTab({ cfg, patch }: TabProps): React.ReactElement {
             className="max-w-xs"
           />
         </Row>
-        <Row label="超时">
+        <Row label="等待时限">
           <Num
             value={cfg.llm.timeoutMs}
             suffix="毫秒"
             onChange={(n) => patch({ llm: { ...cfg.llm, timeoutMs: n } })}
           />
         </Row>
-        <Row label="提示词" stack>
-          <Textarea
-            value={cfg.llm.consolidatePrompt}
-            rows={10}
-            mono
-            onChange={(v) => patch({ llm: { ...cfg.llm, consolidatePrompt: v } })}
-          />
-        </Row>
+        <details className="py-3">
+          <summary className="cursor-pointer text-[12px] text-[var(--fg-muted)]">自定义整理要求</summary>
+          <div className="mt-3">
+            <Textarea
+              value={cfg.llm.consolidatePrompt}
+              rows={6}
+              onChange={(v) => patch({ llm: { ...cfg.llm, consolidatePrompt: v } })}
+            />
+          </div>
+        </details>
       </Section>
     </Page>
   )
@@ -480,9 +482,7 @@ function AppearanceTab({ cfg, patch }: TabProps): React.ReactElement {
           />
           <div className="mt-2">
             <Note>
-              只有用 Win32 原生输入框的应用才查得到光标位置（记事本、Office 这类）。
-              Chrome、VS Code、各种 IM 都是自己画光标，系统层面查不到 ——
-              这些应用里面板会落在窗口底部居中。
+              无法定位光标时，面板显示在窗口底部。
             </Note>
           </div>
         </Row>
@@ -511,9 +511,9 @@ function ThemeSwatch({ mode }: { mode: 'system' | 'light' | 'dark' }): React.Rea
 
 function InjectionTab({ cfg, patch }: TabProps): React.ReactElement {
   return (
-    <Page title="上屏">
+    <Page title="文字输入">
       <Section>
-        <Row label="策略">
+        <Row label="输入方式">
           <Select
             value={cfg.injection.strategy}
             onChange={(v) => patch({ injection: { ...cfg.injection, strategy: v as never } })}
@@ -526,7 +526,7 @@ function InjectionTab({ cfg, patch }: TabProps): React.ReactElement {
           />
         </Row>
         {cfg.injection.strategy === 'auto' && (
-          <Row label="切换阈值" hint="超过就改走剪贴板">
+          <Row label="长文本粘贴" hint="超过此字数时使用粘贴">
             <Num
               value={cfg.injection.clipboardThreshold}
               suffix="字"
@@ -538,31 +538,31 @@ function InjectionTab({ cfg, patch }: TabProps): React.ReactElement {
           <Toggle
             checked={cfg.injection.restoreClipboard}
             onChange={(b) => patch({ injection: { ...cfg.injection, restoreClipboard: b } })}
-            label="粘贴后还原原来的内容"
+            label="粘贴后恢复原内容"
           />
         </Row>
       </Section>
 
-      <Section title="上屏时机">
+      <Section title="输入时机">
         <Row label="模式">
           <Select
             value={cfg.streaming.injectMode}
             onChange={(v) => patch({ streaming: { ...cfg.streaming, injectMode: v as never } })}
             options={[
-              ['segment', '每句说完后追加'],
-              ['live', '边说边上屏']
+              ['segment', '每句说完后输入'],
+              ['live', '边说边输入']
             ]}
             className="max-w-xs"
           />
           {cfg.streaming.injectMode === 'live' && (
             <div className="mt-2">
-              <Note tone="warn">靠退格改写，识别过程中自己动光标会删错东西。</Note>
+              <Note tone="warn">录音时请勿移动光标，以免替换错误的文字。</Note>
             </div>
           )}
         </Row>
       </Section>
 
-      <Section title="强制走剪贴板的应用" hint="少数应用会吞掉模拟按键。填进程名。">
+      <Section title="始终使用粘贴的应用" hint="填写程序文件名，如 WINWORD.EXE">
         <LineList
           value={cfg.injection.clipboardOnlyApps}
           rows={4}
@@ -571,7 +571,7 @@ function InjectionTab({ cfg, patch }: TabProps): React.ReactElement {
         />
       </Section>
 
-      <Note>无法向管理员权限运行的窗口注入文字 —— 这是 Windows 的 UIPI 限制。</Note>
+      <Note>以管理员权限运行的应用可能无法接收文字。</Note>
     </Page>
   )
 }
@@ -598,7 +598,7 @@ function HistoryTab(): React.ReactElement {
             <Stat label="累计" value={stats.count.toLocaleString()} unit="次" />
             <Stat label="字数" value={stats.chars.toLocaleString()} unit="字" />
             <Stat
-              label="比打字省下"
+              label="预计节省时间"
               value={savedMin.toFixed(0)}
               unit="分钟"
               hint="按 60 字/分估算"
@@ -610,7 +610,7 @@ function HistoryTab(): React.ReactElement {
       {items.length === 0 ? (
         <Section>
           <div className="py-8 text-center text-[13px] text-[var(--fg-subtle)]">
-            还没有记录。按住热键说句话试试。
+            暂无记录，完成一次语音输入后会显示在这里。
           </div>
         </Section>
       ) : (

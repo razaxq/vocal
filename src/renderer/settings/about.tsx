@@ -8,7 +8,7 @@
  */
 import { useEffect, useState } from 'react'
 import type { AppStats, UpdateStatus } from '@shared/ipc'
-import { Page, Section, Row, Button, Note } from './ui'
+import { Page, Section, Row, Button, Note, ErrorDetails } from './ui'
 import { useModelStatus, mb } from './models'
 import changelog from '@shared/changelog.json'
 
@@ -44,7 +44,7 @@ export function AboutTab({ updateStatus }: {
 
   return (
     <Page title="关于" desc={<>
-      Vocal 是 Windows 桌面语音输入工具，语音识别与历史存储均在本机完成，仅启用 AI 整理时会将文字发送到你配置的服务。
+      Vocal：本地语音输入工具，历史保存在本机；AI 整理会向所选服务发送文字。
       <span className="mt-1 block">
         由 <a href="https://blog.dtft.net/about/" target="_blank" rel="noopener noreferrer"
           className="text-[var(--accent)] underline underline-offset-2">Ramos</a> 开发
@@ -97,7 +97,6 @@ export function AboutTab({ updateStatus }: {
                 </div>
               ))}
             </div>
-            <Note>不需要实时预览时，可以关闭流式模型，保留定稿识别。具体节省量取决于所选模型。</Note>
           </>
         ) : (
           <div className="text-[13px] text-[var(--fg-subtle)]">读取中…</div>
@@ -110,9 +109,6 @@ export function AboutTab({ updateStatus }: {
                            bg-[var(--surface-2)] px-2.5 py-1.5 font-mono text-[11px]">
             {status?.dataDir ?? '—'}
           </code>
-          {status && !status.portable && (
-            <div className="mt-2"><Note tone="warn">程序目录不可写，已回落到用户目录。</Note></div>
-          )}
           <div className="mt-2">
             <Button variant="default" size="sm" onClick={() => void window.vocal.openModelsDir()}>
               打开模型目录
@@ -186,12 +182,12 @@ function UpdateSection({ st }: {
     switch (st.state) {
       case 'dev': return '开发模式下不检查更新。'
       case 'checking': return '正在检查…'
-      case 'latest': return '已经是最新版本。'
+      case 'latest': return '已是最新版本'
       case 'available': return `有新版本 ${st.latest ?? ''}`
       case 'downloading': return `正在下载 ${st.latest ?? ''}… ${st.percent ?? 0}%`
       case 'ready': return `${st.latest ?? ''} 已准备好`
-      case 'installing': return '正在更新，完成后自动重新打开…'
-      case 'error': return `更新失败：${st.message ?? ''}`
+      case 'installing': return '正在更新，完成后自动重启…'
+      case 'error': return ''
       default: return ''
     }
   })()
@@ -211,8 +207,10 @@ function UpdateSection({ st }: {
                   : st?.latest ? (st.state === 'error' ? '重试更新' : '立即更新') : '检查更新'}
           </Button>
         </div>
-        {line && <div className="mt-2"><Note tone={st?.state === 'error' ? 'danger' : 'muted'}>{line}</Note></div>}
-        {actionError && <div className="mt-2"><Note tone="danger">{actionError}</Note></div>}
+        {line && !actionError && <div className="mt-2"><Note>{line}</Note></div>}
+        {(actionError || st?.state === 'error') && (
+          <div className="mt-2"><ErrorDetails title="更新失败，请重试" detail={actionError || st?.message} /></div>
+        )}
       </Row>
     </Section>
   )

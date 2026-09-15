@@ -27,7 +27,7 @@ export const HOTKEY_CHOICES: HotkeyChoice[] = [
   { key: 'ShiftRight', label: '右 Shift', safe: true },
   { key: 'MetaRight', label: '右 Win', safe: true },
   { key: 'Ctrl', label: '左 Ctrl', safe: true },
-  { key: 'Alt', label: '左 Alt（会弹菜单栏，不推荐）', safe: false },
+  { key: 'Alt', label: '左 Alt（可能打开菜单）', safe: false },
 
   // 功能键：多数应用不用，但有些会（F1 帮助、F5 刷新、F12 开发者工具）
   { key: 'F2', label: 'F2', safe: false },
@@ -38,12 +38,12 @@ export const HOTKEY_CHOICES: HotkeyChoice[] = [
   { key: 'F8', label: 'F8', safe: false },
   { key: 'F9', label: 'F9', safe: false },
   { key: 'F10', label: 'F10', safe: false },
-  { key: 'F13', label: 'F13（外接键盘常见，最干净）', safe: true },
+  { key: 'F13', label: 'F13', safe: true },
   { key: 'F14', label: 'F14', safe: true },
   { key: 'F15', label: 'F15', safe: true },
 
   // 其它
-  { key: 'CapsLock', label: 'CapsLock（会切换大小写状态）', safe: false }
+  { key: 'CapsLock', label: 'CapsLock（切换大小写）', safe: false }
 ]
 
 /** 下拉里给出的推荐键。 */

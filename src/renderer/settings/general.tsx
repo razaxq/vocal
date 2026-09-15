@@ -26,7 +26,7 @@ export function GeneralTab({ cfg, patch }: {
         </Row>
       </Section>
       <Section title="更新">
-        <Row label="启动时检查更新" hint="发现新版本后，在「关于」页提示">
+        <Row label="启动时检查更新" hint="有更新时在「关于」页提示">
           <Toggle checked={cfg.update.auto} disabled={saving} ariaLabel="启动时检查更新"
             onChange={(auto) => void save({ update: { ...cfg.update, auto } })} />
         </Row>

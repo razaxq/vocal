@@ -235,6 +235,21 @@ export function Num({ value, onChange, min, max, suffix }: {
   )
 }
 
+/** 默认显示操作结果，展开后查看排查所需的详细原因。 */
+export function ErrorDetails({ title, detail }: { title: string; detail?: string }): React.ReactElement {
+  return (
+    <div role="alert" className="text-[12px] text-[var(--danger)]">
+      <p>{title}</p>
+      {detail && (
+        <details className="mt-1 text-[var(--fg-muted)]">
+          <summary className="cursor-pointer">查看详情</summary>
+          <p className="mt-1 select-text whitespace-pre-wrap break-words">{detail}</p>
+        </details>
+      )}
+    </div>
+  )
+}
+
 export function Toggle({ checked, onChange, label, disabled = false, ariaLabel }: {
   checked: boolean; onChange: (b: boolean) => void; label?: string
   disabled?: boolean; ariaLabel?: string

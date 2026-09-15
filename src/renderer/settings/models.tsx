@@ -8,7 +8,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import type { AppConfig, ModelStatusInfo, ModelProgress, AsrStatus } from '@shared/ipc'
 import { modelsOf, MODEL_NONE, type ModelEntry } from '@shared/modelRegistry'
-import { Section, Button } from './ui'
+import { Section, Button, ErrorDetails } from './ui'
 
 export const mb = (b: number): string =>
   b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(2)} GB` : `${(b / (1 << 20)).toFixed(0)} MB`
@@ -56,7 +56,7 @@ export function MissingModelsNotice({ status }: {
   return (
     <div className="mb-5 rounded-lg border border-[var(--warn)] bg-[var(--surface-2)] px-3.5 py-2.5
                     text-[12px] text-[var(--warn)]">
-      还不能识别：{status.missing.join('、')} 未就绪。选中的模型会自动开始下载。
+      请下载所需模型：{status.missing.join('、')}。
     </div>
   )
 }
@@ -104,7 +104,7 @@ export function ModelGroup({ slot, title, hint, cfg, patch, status, progress, fi
             active={current === MODEL_NONE}
             disabled={!allowNone}
             name="不使用"
-            sub={allowNone ? '跳过这一层' : '流式和定稿不能同时关闭'}
+            sub={allowNone ? undefined : '至少保留一种识别模型'}
             onSelect={() => allowNone && select(MODEL_NONE)}
           />
         )}
@@ -214,7 +214,7 @@ function ModelRow({ model, active, installed, bytes, progress, onSelect }: {
       active={active}
       disabled={deleting}
       name={model.name}
-      sub={`${model.langs} · ${model.note}`}
+      sub={[model.langs, model.note].filter(Boolean).join(' · ')}
       onSelect={onSelect}
       right={
         busy ? (
@@ -266,14 +266,14 @@ function ModelRow({ model, active, installed, bytes, progress, onSelect }: {
             </p>
           )}
           {!installed && progress?.phase === 'error' && (
-            <p className="mt-2 pl-[26px] text-[11px] text-[var(--danger)]">
-              下载失败：{progress.message}
-            </p>
+            <div className="mt-2 pl-[26px]" onClick={(e) => e.stopPropagation()}>
+              <ErrorDetails title="下载失败，请重新下载" detail={progress.message} />
+            </div>
           )}
 
           {active && !installed && !busy && !deleting && (
             <p className="mt-2 pl-[26px] text-[11px] text-[var(--warn)]">
-              还没下载。点这一行开始下载。
+              点击下载
             </p>
           )}
         </>
@@ -298,16 +298,15 @@ export function AsrStatusLine(): React.ReactElement | null {
   }), [])
 
   if (!st) return null
+  if (st.state === 'error') {
+    return <div className="mb-4"><ErrorDetails title="模型加载失败" detail={st.message} /></div>
+  }
   const text = st.state === 'loading'
-    ? '正在重新加载模型…'
-    : st.state === 'ready'
-      ? '模型已切换，可以直接说话。'
-      : `模型加载失败：${st.message ?? ''}`
+    ? '正在准备模型…'
+    : '模型已就绪'
 
   return (
-    <p className={`mb-4 text-[12px] ${
-      st.state === 'error' ? 'text-[var(--danger)]' : 'text-[var(--fg-muted)]'
-    }`}>
+    <p className="mb-4 text-[12px] text-[var(--fg-muted)]">
       {text}
     </p>
   )

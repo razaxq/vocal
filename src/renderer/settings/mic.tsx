@@ -93,7 +93,7 @@ export function MicSection({ cfg, patch }: {
 
   const a = cfg.audio
   return (
-    <Section title="麦克风" hint={denied ? '没拿到麦克风权限，设备名无法显示。' : undefined}>
+    <Section title="麦克风" hint={denied ? '请在 Windows 设置中允许麦克风访问' : undefined}>
       <Row label="设备">
         <div className="flex items-center gap-2">
           <Select
@@ -118,7 +118,7 @@ export function MicSection({ cfg, patch }: {
                 style={{ width: `${level * 100}%`, transition: 'width 60ms linear' }}
               />
             </div>
-            <p className="mt-1 text-[11px] text-[var(--fg-subtle)]">说句话，绿条应该跟着动。</p>
+            <p className="mt-1 text-[11px] text-[var(--fg-subtle)]">说话时观察音量变化</p>
           </div>
         )}
       </Row>
