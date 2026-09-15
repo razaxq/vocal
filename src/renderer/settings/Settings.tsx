@@ -259,9 +259,15 @@ function AsrTab({ cfg, patch }: TabProps): React.ReactElement {
           onChange={(hotwords) => patch({ hotwords })}
         />
         <Note>
-          {cfg.models.streaming.startsWith('zipformer')
-            ? '当前流式模型支持热词加权，填进去的词在识别时会被优先考虑。'
-            : '要让热词真的提高识别准确率，流式模型得选 Zipformer —— Paraformer 和 SenseVoice 是 CTC 模型，引擎层面就没有热词这条路径。'}
+          {(() => {
+            const st = cfg.models.streaming.startsWith('zipformer')
+            const off = cfg.models.offline.startsWith('zipformer')
+            if (st && off) return '两层模型都支持热词加权，填进去的词在识别时会被优先考虑。'
+            if (st || off) {
+              return `当前只有${st ? '流式' : '定稿'}模型吃热词。另一层选 Zipformer 才能两层都加权。`
+            }
+            return '热词现在只起保护作用（不被清洗删掉）。想让它真的提高识别率，模型要选 Zipformer —— Paraformer 和 SenseVoice 是 CTC 模型，引擎层面没有热词这条路径。'
+          })()}
         </Note>
       </Section>
     </Page>

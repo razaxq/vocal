@@ -27,7 +27,8 @@ declare module 'sherpa-onnx-node' {
 
   export class OfflineRecognizer {
     constructor(config: Record<string, unknown>)
-    createStream(): OfflineStream
+    /** hotwords：`/` 分隔的短语串，只对 transducer + modified_beam_search 生效 */
+    createStream(hotwords?: string): OfflineStream
     decode(s: OfflineStream): void
     getResult(s: OfflineStream): { text: string; lang?: string; emotion?: string }
   }

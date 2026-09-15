@@ -10,7 +10,7 @@
  * 而系统 tar 只要十几秒。系统里没有 tar 时会给出明确提示而不是卡死。
  */
 import { createWriteStream } from 'node:fs'
-import { mkdir, rm, stat, readdir } from 'node:fs/promises'
+import { mkdir, rm, stat, readdir, readFile, writeFile, rename } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -91,7 +91,6 @@ export class ModelDownloader {
         await mkdir(targetDir, { recursive: true })
         const name = Object.values(entry.files)[0] ?? 'model.onnx'
         await rm(join(targetDir, name), { force: true })
-        const { rename } = await import('node:fs/promises')
         await rename(tmpFile, join(targetDir, name))
       } else {
         emit({ phase: 'extracting', received: total, total })
@@ -105,6 +104,17 @@ export class ModelDownloader {
       // 不删的话磁盘占用是三倍（流式那个包解压出来 1.5GB，剔完 230MB）。
       for (const p of entry.prune) {
         await rm(join(targetDir, p), { recursive: true, force: true })
+      }
+
+      /* ---------- 补上上游没给的词表 ---------- */
+      // byte-level BPE 的模型只带二进制 .model，而 sherpa 的热词编码
+      // 要的是文本词表。缺了它热词会在编码阶段失败并被静默跳过，
+      // 所以这里现场生成一份，当作解压的一部分。
+      if (entry.generateBpeVocab) {
+        const { from, to } = entry.generateBpeVocab
+        const { toVocabText } = await import('../../../../scripts/bbpe-vocab.mjs')
+        const raw = await readFile(join(targetDir, from))
+        await writeFile(join(targetDir, to), toVocabText(raw), 'utf8')
       }
 
       /* ---------- 校验 ---------- */

@@ -12,7 +12,9 @@
  * 解压依赖系统自带的 tar。Windows 10 1803+ 自带 bsdtar（支持 bz2），
  * 没有的话装 7-Zip 并把 7z 加进 PATH，脚本会自动回落。
  */
-import { createWriteStream, existsSync, mkdirSync, rmSync, readFileSync, statSync } from 'node:fs'
+import {
+  createWriteStream, existsSync, mkdirSync, rmSync, readFileSync, writeFileSync, statSync
+} from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -173,6 +175,14 @@ async function main() {
       extract(tmp, targetDir)
       rmSync(tmp, { force: true })
       prune(targetDir, item.prune)
+    }
+
+    // 上游没给文本词表的模型，这里现场生成 —— 缺了它热词会静默失效
+    if (item.generateBpeVocab) {
+      const { from, to } = item.generateBpeVocab
+      const { toVocabText } = await import('./bbpe-vocab.mjs')
+      writeFileSync(join(targetDir, to), toVocabText(readFileSync(join(targetDir, from))), 'utf8')
+      console.log(`    已生成 ${to}（热词编码要用）`)
     }
 
     const after = statusOf(item)

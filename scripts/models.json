@@ -1,7 +1,6 @@
 {
   "$comment": "模型注册表。下载脚本和主进程共用同一份 —— 改这里就等于改可选模型列表。",
   "$note": "kind 决定 sherpa 的配置形状：online-paraformer 是 CTC（encoder+decoder），online-zipformer 是 transducer（encoder+decoder+joiner）。",
-
   "streaming": [
     {
       "id": "paraformer-zh-en",
@@ -17,7 +16,10 @@
         "decoder": "decoder.int8.onnx",
         "tokens": "tokens.txt"
       },
-      "prune": ["encoder.onnx", "decoder.onnx"]
+      "prune": [
+        "encoder.onnx",
+        "decoder.onnx"
+      ]
     },
     {
       "id": "paraformer-zh-yue-en",
@@ -33,7 +35,10 @@
         "decoder": "decoder.int8.onnx",
         "tokens": "tokens.txt"
       },
-      "prune": ["encoder.onnx", "decoder.onnx"]
+      "prune": [
+        "encoder.onnx",
+        "decoder.onnx"
+      ]
     },
     {
       "id": "zipformer-zh",
@@ -70,7 +75,6 @@
       "prune": []
     }
   ],
-
   "offline": [
     {
       "id": "sensevoice-2024",
@@ -101,9 +105,34 @@
         "tokens": "tokens.txt"
       },
       "prune": []
+    },
+    {
+      "id": "zipformer-zh-en",
+      "name": "Zipformer 中英（transducer）",
+      "langs": "中文 / 英文",
+      "note": "唯一支持热词的定稿模型，体积只有 SenseVoice 的四分之一。不带 ITN（「二零二六年」不会变成「2026 年」）。",
+      "kind": "offline-transducer",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-zh-en-2023-11-22.tar.bz2",
+      "dir": "sherpa-onnx-zipformer-zh-en-2023-11-22",
+      "approxMB": 75,
+      "files": {
+        "encoder": "encoder-epoch-34-avg-19.int8.onnx",
+        "decoder": "decoder-epoch-34-avg-19.onnx",
+        "joiner": "joiner-epoch-34-avg-19.int8.onnx",
+        "tokens": "tokens.txt",
+        "bpeVocab": "bbpe.vocab"
+      },
+      "prune": [
+        "encoder-epoch-34-avg-19.onnx",
+        "joiner-epoch-34-avg-19.onnx",
+        "test_wavs"
+      ],
+      "generateBpeVocab": {
+        "from": "bbpe.model",
+        "to": "bbpe.vocab"
+      }
     }
   ],
-
   "punct": [
     {
       "id": "ct-transformer",
@@ -114,11 +143,12 @@
       "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2",
       "dir": "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8",
       "approxMB": 75,
-      "files": { "model": "model.int8.onnx" },
+      "files": {
+        "model": "model.int8.onnx"
+      },
       "prune": []
     }
   ],
-
   "vad": [
     {
       "id": "silero",
@@ -130,7 +160,9 @@
       "dir": "silero-vad",
       "archive": "raw",
       "approxMB": 2,
-      "files": { "model": "silero_vad.onnx" },
+      "files": {
+        "model": "silero_vad.onnx"
+      },
       "prune": []
     }
   ]

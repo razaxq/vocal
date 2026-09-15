@@ -5,11 +5,12 @@
  * SenseVoice 重转写在另一个进程（finalize.ts）里跑，两者并行。
  * 这是长输入性能的关键：说第 N+1 段的时候，第 N 段已经在另一个核上定稿了。
  */
-import { writeFileSync, mkdtempSync } from 'node:fs'
+import { writeFileSync, mkdtempSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import sherpa, { type OnlineRecognizer, type OnlineStream } from 'sherpa-onnx-node'
 import type { StreamCommand, StreamEvent, ModelPaths } from '@shared/types'
+import { encodeHotwords, parseTokens } from '@shared/hotwordEncode'
 
 const port = process.parentPort
 const send = (e: StreamEvent): void => port.postMessage(e)
@@ -20,18 +21,50 @@ let models: ModelPaths | null = null
 let enabled = true
 let endpointSilenceMs = 1500
 
+/**
+ * 热词加权强度。sherpa 出厂值 1.5，实测对一个已经很自信的模型几乎不动；
+ * 调到 20 会把正确的词都掰弯（实测「花费」被同音热词「花废」顶掉）。
+ * 2.5 是「帮得上生僻专名、又不至于改写正常句子」的位置。
+ */
+const HOTWORDS_SCORE = 2.5
+
 let sessionId: string | null = null
 let segment = 0
 let consumedSamples = 0
 let lastPartial = ''
 
-/** 热词必须写成文件交给 sherpa —— 它的接口只接受路径。 */
-function writeHotwords(words: string[]): string | undefined {
+/**
+ * 热词必须写成文件交给 sherpa —— 它的接口只接受路径。
+ *
+ * 而且文件里不能写自然词：每行必须是 tokens.txt 里真实存在的 token，
+ * 空格分开。直接写「陈心宇」编码会失败，sherpa 往 stderr 打一行
+ * 「Encode hotwords failed, skipping」就当没有热词继续跑 ——
+ * 应用层完全察觉不到。所以先按词表编码一遍，编不出来的回报给上层。
+ */
+function writeHotwords(words: string[], tokensPath: string): string | undefined {
   const cleaned = words.map((w) => w.trim()).filter(Boolean)
   if (cleaned.length === 0) return undefined
+
+  let encoded: string[]
+  try {
+    const vocab = parseTokens(readFileSync(tokensPath, 'utf8'))
+    const r = encodeHotwords(cleaned, vocab)
+    encoded = r.lines
+    if (r.dropped.length) {
+      send({
+        type: 'error',
+        message: `这些热词当前模型认不了，已忽略：${r.dropped.join('、')}`,
+        fatal: false
+      })
+    }
+  } catch {
+    return undefined
+  }
+  if (encoded.length === 0) return undefined
+
   const dir = mkdtempSync(join(tmpdir(), 'vocal-hw-'))
   const file = join(dir, 'hotwords.txt')
-  writeFileSync(file, cleaned.join('\n') + '\n', 'utf8')
+  writeFileSync(file, encoded.join('\n') + '\n', 'utf8')
   return file
 }
 
@@ -60,7 +93,7 @@ function build(m: ModelPaths, hotwords: string[]): OnlineRecognizer {
    * 现在：只有 transducer + 真的填了热词，才切到 modified_beam_search。
    * 其余情况老实用 greedy_search（更快），热词由上层说明它只保护不加权。
    */
-  const hotwordsFile = isTransducer ? writeHotwords(hotwords) : undefined
+  const hotwordsFile = isTransducer ? writeHotwords(hotwords, st.tokens) : undefined
   const decodingMethod = hotwordsFile ? 'modified_beam_search' : 'greedy_search'
 
   return new sherpa.OnlineRecognizer({
@@ -81,7 +114,7 @@ function build(m: ModelPaths, hotwords: string[]): OnlineRecognizer {
     rule1MinTrailingSilence: (endpointSilenceMs + 1200) / 1000,
     rule2MinTrailingSilence: endpointSilenceMs / 1000,
     rule3MinUtteranceLength: 300,
-    ...(hotwordsFile ? { hotwordsFile, hotwordsScore: 1.5 } : {})
+    ...(hotwordsFile ? { hotwordsFile, hotwordsScore: HOTWORDS_SCORE } : {})
   })
 }
 

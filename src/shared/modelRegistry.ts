@@ -22,6 +22,11 @@ export interface ModelEntry {
   archive?: string
   files: Record<string, string>
   prune: string[]
+  /**
+   * 有些模型的 tar 包里只有 sentencepiece 的二进制 .model，
+   * 而 sherpa 的热词编码要的是文本词表。解压后现场生成一份。
+   */
+  generateBpeVocab?: { from: string; to: string }
 }
 
 export type ModelSlot = 'streaming' | 'offline' | 'punct' | 'vad'

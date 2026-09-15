@@ -88,9 +88,23 @@ export interface StreamingModelPaths {
   tokens: string
 }
 
+/**
+ * 定稿模型有两种形状，对应 sherpa 的两套配置：
+ *   sense-voice —— CTC，一个 model 文件；自带 ITN，但引擎层面没有热词
+ *   transducer  —— encoder + decoder + joiner；**支持热词**
+ * kind 决定 finalize.ts 走哪个分支，写错 sherpa 会直接报「没有给出任何模型」。
+ */
 export interface OfflineModelPaths {
+  kind: 'offline-sense-voice' | 'offline-transducer'
+  /** sense-voice 用 */
   model: string
+  /** transducer 用 */
+  encoder?: string
+  decoder?: string
+  joiner?: string
   tokens: string
+  /** byte-level BPE 模型要用它才能把自然词编码成热词 */
+  bpeVocab?: string
 }
 
 export interface ModelPaths {
@@ -187,6 +201,8 @@ export type FinalizeCommand =
        *              流式模型一个标点都不带，不补就是一长串连字。
        */
       mode: 'full' | 'punct-only'
+      /** 只有 transducer 定稿模型吃得下；CTC 模型（SenseVoice）传了也没用 */
+      hotwords: string[]
     }
   | {
       type: 'finalize'
@@ -204,6 +220,7 @@ export type FinalizeCommand =
       text: string
     }
   | { type: 'cleanup:update'; cleanup: CleanupConfig }
+  | { type: 'hotwords:update'; hotwords: string[] }
   | { type: 'shutdown' }
 
 export type FinalizeEvent =

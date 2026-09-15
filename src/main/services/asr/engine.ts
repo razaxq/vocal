@@ -122,7 +122,11 @@ export class AsrEngine {
         })
         fp.on('exit', (code) => this.onExit('finalize', code, reject))
         fp.postMessage({
-          type: 'init', models: this.models, cleanup: this.cleanup, mode: finalizeMode
+          type: 'init',
+          models: this.models,
+          cleanup: this.cleanup,
+          mode: finalizeMode,
+          hotwords: this.hotwords
         } satisfies FinalizeCommand)
       }
 
@@ -267,9 +271,11 @@ export class AsrEngine {
     this.audio.reset()
   }
 
+  /** 两个进程都要知道 —— transducer 模型在哪一层都吃热词。 */
   updateHotwords(hotwords: string[]): void {
     this.hotwords = hotwords
     this.stream?.postMessage({ type: 'hotwords:update', hotwords } satisfies StreamCommand)
+    this.finalize?.postMessage({ type: 'hotwords:update', hotwords } satisfies FinalizeCommand)
   }
 
   updateCleanup(cleanup: CleanupConfig): void {

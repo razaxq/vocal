@@ -45,8 +45,17 @@ export function resolveModelPaths(
         }
       : { kind: 'online-paraformer' as const, encoder: '', decoder: '', tokens: '' },
     offline: off
-      ? { model: fileOf(root, off, 'model'), tokens: fileOf(root, off, 'tokens') }
-      : { model: '', tokens: '' },
+      ? {
+          kind: off.kind as ModelPaths['offline']['kind'],
+          // sense-voice 是单文件；transducer 是三件套，两边的 files 键不一样
+          model: off.files['model'] ? fileOf(root, off, 'model') : '',
+          ...(off.files['encoder'] ? { encoder: fileOf(root, off, 'encoder') } : {}),
+          ...(off.files['decoder'] ? { decoder: fileOf(root, off, 'decoder') } : {}),
+          ...(off.files['joiner'] ? { joiner: fileOf(root, off, 'joiner') } : {}),
+          ...(off.files['bpeVocab'] ? { bpeVocab: fileOf(root, off, 'bpeVocab') } : {}),
+          tokens: fileOf(root, off, 'tokens')
+        }
+      : { kind: 'offline-sense-voice' as const, model: '', tokens: '' },
     punct: fileOf(root, punct, 'model'),
     vad: fileOf(root, vad, 'model')
   }
@@ -74,7 +83,11 @@ export function checkModels(
     if (p.streaming.joiner) checks.push(['流式模型', p.streaming.joiner])
   }
   if (sel.offline !== MODEL_NONE) {
-    checks.push(['定稿模型', p.offline.model], ['定稿词表', p.offline.tokens])
+    checks.push(['定稿词表', p.offline.tokens])
+    // sense-voice 单文件，transducer 三件套 —— 按实际有哪几个查
+    for (const f of [p.offline.model, p.offline.encoder, p.offline.decoder, p.offline.joiner]) {
+      if (f) checks.push(['定稿模型', f])
+    }
   }
 
   const missing = [...new Set(checks.filter(([, f]) => !existsSync(f)).map(([n]) => n))]

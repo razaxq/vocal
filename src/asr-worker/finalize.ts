@@ -21,6 +21,27 @@ const send = (e: FinalizeEvent): void => port.postMessage(e)
 let recognizer: OfflineRecognizer | null = null
 let punct: OfflinePunctuation | null = null
 let cleanup: CleanupConfig = { level: 'standard', protect: [], extraFillers: [] }
+let models: ModelPaths | null = null
+let hotwords: string[] = []
+
+/**
+ * 热词加权强度。和 stream.ts 同一个口径，理由见那边的注释。
+ */
+const HOTWORDS_SCORE = 2.5
+
+/**
+ * 离线侧的热词和在线侧**不是一套接口**：
+ *   在线 —— 配置里给 hotwordsFile（一个文件路径）
+ *   离线 —— createStream(hotwords) 逐条传，`/` 分隔，可选 ` :分数`
+ * 后者的冒号前**必须有空格**，没有的话 sherpa 静默当作没写分数也不报错。
+ *
+ * 这个模型是 byte-level BPE，配上 modelingUnit='bbpe' + bpeVocab 之后
+ * 可以直接写自然词，不用像流式那样自己按词表编码。
+ */
+function hotwordsArg(): string | undefined {
+  const cleaned = hotwords.map((w) => w.trim()).filter(Boolean)
+  return cleaned.length ? cleaned.join('/') : undefined
+}
 
 /** 标点 + 规则清洗，两个档位共用的收尾。 */
 function polish(text: string): { text: string; removed: number } {
@@ -35,8 +56,10 @@ function polish(text: string): { text: string; removed: number } {
   return { text: cleaned.text, removed: cleaned.removed }
 }
 
-function init(m: ModelPaths, c: CleanupConfig, mode: 'full' | 'punct-only'): void {
+function init(m: ModelPaths, c: CleanupConfig, mode: 'full' | 'punct-only', hw: string[]): void {
   cleanup = c
+  models = m
+  hotwords = hw
 
   // punct-only：只用流式档位，不重转写，所以 SenseVoice 不加载（省 ~230MB）。
   // 标点模型照常加载 —— 它才 72MB，而没有它输出就是一长串不断句的字。
@@ -45,16 +68,51 @@ function init(m: ModelPaths, c: CleanupConfig, mode: 'full' | 'punct-only'): voi
   send({ type: 'ready' })
 }
 
+/**
+ * 两种定稿模型，两套配置形状：
+ *   sense-voice —— CTC 单文件。自带 ITN（「二零二六年三点五万」→「2026 年 3.5 万」），
+ *                  但引擎层面没有热词这条路径。
+ *   transducer  —— encoder + decoder + joiner。**支持热词**，体积小得多，
+ *                  代价是没有 ITN。
+ * 写错分支 sherpa 会直接报「没有给出任何模型」，不会静默回落。
+ */
 function buildRecognizer(m: ModelPaths): void {
+  const off = m.offline
+
+  if (off.kind === 'offline-transducer') {
+    // 热词只在 transducer + modified_beam_search 下生效。
+    // bpeVocab 是硬前提：没有它，sherpa 编码热词时会失败并静默跳过。
+    const wantHotwords = Boolean(off.bpeVocab) && hotwordsArg() !== undefined
+    recognizer = new sherpa.OfflineRecognizer({
+      featConfig: { sampleRate: 16000, featureDim: 80 },
+      modelConfig: {
+        transducer: {
+          encoder: off.encoder ?? '',
+          decoder: off.decoder ?? '',
+          joiner: off.joiner ?? ''
+        },
+        tokens: off.tokens,
+        numThreads: 2,
+        provider: 'cpu',
+        debug: 0,
+        ...(off.bpeVocab ? { modelingUnit: 'bbpe', bpeVocab: off.bpeVocab } : {})
+      },
+      decodingMethod: wantHotwords ? 'modified_beam_search' : 'greedy_search',
+      maxActivePaths: 4,
+      hotwordsScore: HOTWORDS_SCORE
+    })
+    return
+  }
+
   recognizer = new sherpa.OfflineRecognizer({
     featConfig: { sampleRate: 16000, featureDim: 80 },
     modelConfig: {
       senseVoice: {
-        model: m.offline.model,
+        model: off.model,
         language: '',                    // 空 = 自动判语种
         useInverseTextNormalization: 1   // 「二零二六年三点五万」→「2026 年 3.5 万」
       },
-      tokens: m.offline.tokens,
+      tokens: off.tokens,
       numThreads: 2,
       provider: 'cpu',
       debug: 0
@@ -78,7 +136,13 @@ port.on('message', (event: { data: FinalizeCommand }) => {
   try {
     switch (cmd.type) {
       case 'init':
-        init(cmd.models, cmd.cleanup, cmd.mode)
+        init(cmd.models, cmd.cleanup, cmd.mode, cmd.hotwords)
+        break
+
+      case 'hotwords:update':
+        // 离线侧热词是每次 createStream 现传的，不用重建 recognizer ——
+        // 改个热词要等两秒重新加载模型，那体验说不过去
+        hotwords = cmd.hotwords
         break
 
       case 'punctuate': {
@@ -118,7 +182,11 @@ port.on('message', (event: { data: FinalizeCommand }) => {
         const voice = detectVoice(samples)
 
         if (voice.hasVoice && recognizer && samples.length > 0) {
-          const s = recognizer.createStream()
+          // 离线侧热词是 per-stream 给的，不在构造配置里
+          const hw = models?.offline.kind === 'offline-transducer' && models.offline.bpeVocab
+            ? hotwordsArg()
+            : undefined
+          const s = hw === undefined ? recognizer.createStream() : recognizer.createStream(hw)
           s.acceptWaveform({ sampleRate: 16000, samples })
           recognizer.decode(s)
           text = (recognizer.getResult(s).text ?? '').trim()
@@ -146,6 +214,7 @@ port.on('message', (event: { data: FinalizeCommand }) => {
       case 'shutdown':
         recognizer = null
         punct = null
+        models = null
         process.exit(0)
     }
   } catch (e) {
