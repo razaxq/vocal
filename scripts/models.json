@@ -1,0 +1,137 @@
+{
+  "$comment": "模型注册表。下载脚本和主进程共用同一份 —— 改这里就等于改可选模型列表。",
+  "$note": "kind 决定 sherpa 的配置形状：online-paraformer 是 CTC（encoder+decoder），online-zipformer 是 transducer（encoder+decoder+joiner）。",
+
+  "streaming": [
+    {
+      "id": "paraformer-zh-en",
+      "name": "Paraformer 中英双语",
+      "langs": "中文 / 英文",
+      "note": "默认。中英混排最稳，日常写代码、聊天都合适。",
+      "kind": "online-paraformer",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-paraformer-bilingual-zh-en.tar.bz2",
+      "dir": "sherpa-onnx-streaming-paraformer-bilingual-zh-en",
+      "approxMB": 230,
+      "files": {
+        "encoder": "encoder.int8.onnx",
+        "decoder": "decoder.int8.onnx",
+        "tokens": "tokens.txt"
+      },
+      "prune": ["encoder.onnx", "decoder.onnx"]
+    },
+    {
+      "id": "paraformer-zh-yue-en",
+      "name": "Paraformer 中粤英三语",
+      "langs": "中文 / 粤语 / 英文",
+      "note": "多认粤语，其余和默认那个同源。",
+      "kind": "online-paraformer",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-paraformer-trilingual-zh-cantonese-en.tar.bz2",
+      "dir": "sherpa-onnx-streaming-paraformer-trilingual-zh-cantonese-en",
+      "approxMB": 230,
+      "files": {
+        "encoder": "encoder.int8.onnx",
+        "decoder": "decoder.int8.onnx",
+        "tokens": "tokens.txt"
+      },
+      "prune": ["encoder.onnx", "decoder.onnx"]
+    },
+    {
+      "id": "zipformer-zh",
+      "name": "Zipformer 中文",
+      "langs": "中文",
+      "note": "2025 年的新模型，纯中文场景比 Paraformer 准；英文单词会被音译，中英混排别用。",
+      "kind": "online-zipformer",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30.tar.bz2",
+      "dir": "sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30",
+      "approxMB": 135,
+      "files": {
+        "encoder": "encoder.int8.onnx",
+        "decoder": "decoder.onnx",
+        "joiner": "joiner.int8.onnx",
+        "tokens": "tokens.txt"
+      },
+      "prune": []
+    },
+    {
+      "id": "zipformer-zh-xlarge",
+      "name": "Zipformer 中文 XL",
+      "langs": "中文",
+      "note": "同上但更大更准，CPU 占用也更高。机器好可以试。",
+      "kind": "online-zipformer",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-zh-xlarge-int8-2025-06-30.tar.bz2",
+      "dir": "sherpa-onnx-streaming-zipformer-zh-xlarge-int8-2025-06-30",
+      "approxMB": 400,
+      "files": {
+        "encoder": "encoder.int8.onnx",
+        "decoder": "decoder.onnx",
+        "joiner": "joiner.int8.onnx",
+        "tokens": "tokens.txt"
+      },
+      "prune": []
+    }
+  ],
+
+  "offline": [
+    {
+      "id": "sensevoice-2024",
+      "name": "SenseVoice 2024-07-17",
+      "langs": "中文 / 英文 / 日文 / 韩文 / 粤语",
+      "note": "默认。自带标点和数字格式化（「二零二六年」→「2026 年」）。",
+      "kind": "offline-sense-voice",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
+      "dir": "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17",
+      "approxMB": 240,
+      "files": {
+        "model": "model.int8.onnx",
+        "tokens": "tokens.txt"
+      },
+      "prune": []
+    },
+    {
+      "id": "sensevoice-2025",
+      "name": "SenseVoice 2025-09-09",
+      "langs": "中文 / 英文 / 日文 / 韩文 / 粤语",
+      "note": "更新版，粤语样本更多；但它不输出标点，全靠后面的标点模型补。",
+      "kind": "offline-sense-voice",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2",
+      "dir": "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09",
+      "approxMB": 240,
+      "files": {
+        "model": "model.int8.onnx",
+        "tokens": "tokens.txt"
+      },
+      "prune": []
+    }
+  ],
+
+  "punct": [
+    {
+      "id": "ct-transformer",
+      "name": "CT-Transformer 中英标点",
+      "langs": "中文 / 英文",
+      "note": "给识别结果补标点。必需。",
+      "kind": "punct-ct-transformer",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2",
+      "dir": "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8",
+      "approxMB": 75,
+      "files": { "model": "model.int8.onnx" },
+      "prune": []
+    }
+  ],
+
+  "vad": [
+    {
+      "id": "silero",
+      "name": "Silero VAD",
+      "langs": "通用",
+      "note": "语音活动检测。目前只在二期的长录音分段里用。",
+      "kind": "vad-silero",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
+      "dir": "silero-vad",
+      "archive": "raw",
+      "approxMB": 2,
+      "files": { "model": "silero_vad.onnx" },
+      "prune": []
+    }
+  ]
+}

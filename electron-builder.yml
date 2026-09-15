@@ -1,0 +1,55 @@
+appId: net.dtft.vocal
+productName: Vocal
+copyright: Copyright © 2026
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - out/**/*
+  - package.json
+  - '!**/*.map'
+
+# 模型不打进安装包：首次启动时按需下载到 userData，
+# 否则安装包会膨胀到 500MB+ 且无法增量更新模型。
+extraResources:
+  - from: resources/tray.png
+    to: tray.png
+
+asarUnpack:
+  - '**/node_modules/koffi/**'
+  - '**/node_modules/@koromix/**'          # koffi 的平台二进制包
+  - '**/node_modules/uiohook-napi/**'
+  - '**/node_modules/sherpa-onnx-node/**'
+  - '**/node_modules/sherpa-onnx-win-x64/**'
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    # 解压即用。data/ 会建在 exe 旁边，整个文件夹拷走就能换机器 ——
+    # 这才是真便携，electron-builder 的 portable 目标是解压到临时目录跑，反而不便携
+    - target: zip
+      arch: [x64]
+  icon: build/icon.ico
+  # 语音输入不需要管理员权限；提权反而会让 SendInput 无法注入普通进程。
+  requestedExecutionLevel: asInvoker
+
+nsis:
+  oneClick: false
+  # 装到 %LOCALAPPDATA%\Programs —— 不需要管理员权限，
+  # 也就不会因为 UAC 提权把 SendInput 的注入目标限制住
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: Vocal
+  # 卸载时保留 %APPDATA%\Vocal：里面有用户的模型（几百 MB）和历史记录，
+  # 升级走的也是「卸载再安装」，这里设 true 等于每次更新都清空用户数据
+  deleteAppDataOnUninstall: false
+
+# 自动更新从 GitHub Releases 拉。owner/repo 从 package.json 的
+# repository 字段推断，所以那个字段必须是真的。
+publish:
+  provider: github
+  releaseType: release

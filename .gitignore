@@ -1,0 +1,24 @@
+node_modules/
+out/
+dist/
+release/
+*.log
+
+# 模型体积很大，永远不进仓库
+resources/models/
+!resources/models/.gitkeep
+
+.env
+.env.local
+.vscode/
+.idea/
+Thumbs.db
+
+# TypeScript 增量编译产物
+*.tsbuildinfo
+
+# 便携模式的数据目录（配置、历史、模型）
+data/
+
+# Cowork 会话往这里放临时产物
+Claude outputs/

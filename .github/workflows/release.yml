@@ -1,0 +1,40 @@
+# 打 tag 就发版。
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# 产物：NSIS 安装包（.exe）、便携包（.zip）、以及 latest.yml ——
+# 最后这个是 electron-updater 用来判断有没有新版本的清单，
+# 漏掉它自动更新就永远查不到新版。electron-builder 的 publish
+# 会自动带上，不要手动改 Release 的附件。
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write        # 创建 Release 需要
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # 必须是干净安装：增量 npm install 会把非本平台的 optional 依赖
+      # 从 lock 里剔掉，Windows 上就装不到 sherpa-onnx-win-x64
+      - run: npm ci
+
+      - run: npm run typecheck
+      - run: npm test
+
+      - name: Build and publish
+        run: npm run release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

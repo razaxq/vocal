@@ -1,0 +1,13 @@
+# 仓库里统一用 LF，检出时交给各自平台的 core.autocrlf 处理。
+# 不统一的话，Windows 上提交一次就会出现整文件的行尾 diff。
+* text=auto eol=lf
+
+# 二进制：别做行尾转换，也别在 diff 里展开
+*.ico   binary
+*.png   binary
+*.jpg   binary
+*.onnx  binary
+*.node  binary
+
+# 生成物：GitHub 语言统计里不计入，也不在 PR diff 里默认展开
+package-lock.json  linguist-generated=true -diff

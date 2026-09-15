@@ -1,0 +1,71 @@
+# 发布到 GitHub
+
+## 一次性准备
+
+1. **仓库地址已填好**：`package.json` 的 `repository.url` 指向
+   `https://github.com/razaxq/vocal.git`。electron-builder 用它决定把产物传到哪个 Release，
+   electron-updater 用它决定去哪里查新版本。
+   **改仓库名或换账号时这里必须跟着改** —— 填错不会报错，只会让自动更新永远显示「已经是最新版本」。
+
+2. **图标已就位**：`build/icon.ico`（16~256 七个尺寸）和 `resources/tray.png`。
+
+3. **`.gitignore` 已挡住 `data/`**（模型 1.5GB、配置、历史）和 `node_modules/`。
+
+4. **仓库必须是公开的**，否则 Release 附件要 token 才能下载，自动更新会失效。
+
+## 出什么格式
+
+**不要用 RAR。** 它是私有格式，Windows 不能双击打开，用户还得先装 WinRAR ——
+在一个「装完就能用」的项目上加一道安装 WinRAR 的门槛，没有道理。
+
+发两个产物，各有各的人群：
+
+| 产物 | 给谁 | 数据在哪 | 自动更新 |
+|---|---|---|---|
+| `Vocal-Setup-x.y.z.exe`（NSIS） | 大多数人 | `%APPDATA%\Vocal` | ✅ |
+| `Vocal-x.y.z-win.zip` | 想随身带、或不想装东西的人 | exe 旁边的 `data/` | ❌（只提示） |
+
+两者由**卸载程序**区分：NSIS 一定会在安装目录里留一个 `Uninstall Vocal.exe`，
+zip 里绝不会有。程序据此判断自己是哪一种（见 `main/index.ts` 的 `setupDataDir`）。
+
+为什么安装版不把数据放在 exe 旁边：NSIS 升级本质上是「卸载再安装」，会重写整个安装目录。
+数据放那儿，每次自动更新都会连锅端掉用户的模型和历史。
+
+## 发一个版本
+
+```bash
+# 1. 改版本号
+npm version patch          # 或 minor / major，会自动 commit + 打 tag
+
+# 2. 推上去
+git push && git push --tags
+```
+
+GitHub Actions（`.github/workflows/release.yml`）会在 Windows runner 上
+`npm ci` → 类型检查 → 测试 → 打包 → 上传到对应的 Release。
+
+产物里有个 `latest.yml`，那是 electron-updater 查版本用的清单。
+**不要手动编辑 Release 的附件列表**，删了它自动更新就废了。
+
+## 本地打包（不发布）
+
+```bash
+npm run dist          # 出 release/ 目录，不上传
+npm run pack          # 只解包，不做安装器，调试用
+```
+
+## 代码签名
+
+没签名的话，用户第一次运行会看到 SmartScreen 的蓝色警告框，要点「更多信息 → 仍要运行」。
+这不是能靠配置绕过的 —— 需要一张 OV/EV 代码签名证书（每年几百到上千美元），
+EV 证书才能立刻获得 SmartScreen 信誉，OV 证书要靠下载量慢慢积累。
+
+个人项目通常就先不签，在 README 里说明一句。要签的话把证书塞进 Actions secrets，
+然后在 `electron-builder.yml` 的 `win` 下加 `certificateSubjectName` 或用
+`CSC_LINK` / `CSC_KEY_PASSWORD` 环境变量。
+
+## 模型不进安装包
+
+四个模型加起来 500MB+。打进去会让安装包无法增量更新，也让「只想试试」的人望而却步。
+首次启动检测缺失 → 设置窗口直接开到「识别」页，点一下就开始下载。
+这一条不要改。
