@@ -1,6 +1,6 @@
 {
   "name": "vocal",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Vocal — Windows 桌面语音输入：按住说话，流式上屏，像输入法一样用。",
   "private": true,
   "//repository": "electron-builder 和 electron-updater 都从这里推断 GitHub Releases 地址，改仓库名 / 改用户名时这里必须跟着改，否则自动更新会静默失效。",
@@ -26,6 +26,7 @@
     "release": "npm run build && electron-builder --win --publish always",
     "test": "node --experimental-strip-types --test \"src/**/*.test.ts\"",
     "m0:native": "electron scripts/m0/index.cjs --check=native",
+    "m0:capture": "electron scripts/m0/capture.cjs",
     "m0:focus": "electron scripts/m0/index.cjs --check=focus",
     "m0:inject": "electron scripts/m0/index.cjs --check=inject",
     "m0:roundtrip": "electron scripts/m0/index.cjs --check=roundtrip",

@@ -41,7 +41,9 @@ export class MicCapture {
     })
 
     this.ctx = new AudioContext({ sampleRate: AUDIO.sampleRate })
-    await this.ctx.audioWorklet.addModule('/pcm-worklet.js')
+    // 两个页面都在 renderer 的下一层；绝对路径在 file:// 下会指向盘符根目录。
+    const workletUrl = new URL('../pcm-worklet.js', window.location.href)
+    await this.ctx.audioWorklet.addModule(workletUrl.href)
 
     const src = this.ctx.createMediaStreamSource(this.stream)
     this.node = new AudioWorkletNode(this.ctx, 'pcm-collector', {

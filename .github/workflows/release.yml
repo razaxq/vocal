@@ -35,6 +35,8 @@ jobs:
 
       - run: npm run typecheck
       - run: npm test
+      - run: npm run build
+      - run: npm run m0:capture
 
       - name: Build and publish
         run: npm run release
