@@ -251,13 +251,18 @@ function AsrTab({ cfg, patch }: TabProps): React.ReactElement {
         cfg={cfg} patch={patch} status={status} progress={progress} fixed
       />
 
-      <Section title="热词" hint="人名、术语、缩写。提高识别权重，也不会被清洗当成口语词删掉。">
+      <Section title="热词" hint="人名、术语、缩写。这些词永远不会被「清洗」当成口语词删掉。">
         <LineList
           value={cfg.hotwords}
           rows={7}
           placeholder={'Kubernetes\nsherpa-onnx\nLoRA'}
           onChange={(hotwords) => patch({ hotwords })}
         />
+        <Note>
+          {cfg.models.streaming.startsWith('zipformer')
+            ? '当前流式模型支持热词加权，填进去的词在识别时会被优先考虑。'
+            : '要让热词真的提高识别准确率，流式模型得选 Zipformer —— Paraformer 和 SenseVoice 是 CTC 模型，引擎层面就没有热词这条路径。'}
+        </Note>
       </Section>
     </Page>
   )

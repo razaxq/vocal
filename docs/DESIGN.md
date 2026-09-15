@@ -261,7 +261,19 @@ Windows 上有四条路，各有死角：
 - SenseVoice 在极短片段上偶尔输出空串 → 定稿长度不足流式结果一半就回落到流式文本
 - 单段定稿抛异常 → 回传流式文本，会话继续，不让一段拖垮整场
 
-**热词**走 sherpa 的 `hotwordsFile` + `hotwordsScore`。这是语音输入能不能真正替代打字的分水岭 —— 人名、项目名、缩写认不出来，用户就得回去手改，一切体验归零。热词表同时自动纳入规则清洗的保护词，避免专有名词被当成填充词删掉。
+**热词有个硬约束，必须说清楚**：sherpa-onnx 的 contextual biasing 只对 **transducer** 模型生效，
+而且解码方式必须是 `modified_beam_search`。CTC 模型（Paraformer、SenseVoice）根本没有这条路径。
+
+最初的实现不管什么模型都把 `hotwordsFile` 传进去、解码方式写死 `greedy_search` ——
+sherpa 不报错，只是**默默不生效**。于是「热词」这个设置对识别毫无影响，
+用户填了半天只在清洗层起了个保护作用。这种沉默失效比报错难查得多。
+
+现在的行为：选 Zipformer（transducer）且真的填了热词，才切到 `modified_beam_search` 并传热词表；
+选 Paraformer 就老实用 `greedy_search`，界面上直说热词此时只保护不加权。
+热词表在任何档位下都会自动纳入规则清洗的保护词，避免专有名词被当成填充词删掉。
+
+想让热词真正提高识别率，就得用 Zipformer —— 这是选模型时的一个实打实的取舍，
+不该藏在代码里。
 
 ### 4.4 三层文本整理 —— 哪些要模型，哪些不要
 

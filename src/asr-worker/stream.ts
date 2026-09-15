@@ -36,16 +36,32 @@ function writeHotwords(words: string[]): string | undefined {
 }
 
 function build(m: ModelPaths, hotwords: string[]): OnlineRecognizer {
-  const hotwordsFile = writeHotwords(hotwords)
   const st = m.streaming
 
   // 两类模型的配置形状不同：
   //   paraformer 是 CTC —— encoder + decoder
   //   zipformer 是 transducer —— encoder + decoder + joiner
   // 写错分支 sherpa 会直接报「没有给出任何模型」，不会静默回落。
-  const arch = st.kind === 'online-zipformer'
+  const isTransducer = st.kind === 'online-zipformer'
+  const arch = isTransducer
     ? { transducer: { encoder: st.encoder, decoder: st.decoder, joiner: st.joiner ?? '' } }
     : { paraformer: { encoder: st.encoder, decoder: st.decoder } }
+
+  /*
+   * 热词（contextual biasing）在 sherpa-onnx 里有两个硬条件：
+   * 必须是 transducer 模型，且解码方式必须是 modified_beam_search。
+   * CTC 模型（Paraformer、SenseVoice）根本没有这条路径。
+   *
+   * 之前这里不管什么模型都把 hotwordsFile 传进去、解码方式写死
+   * greedy_search —— sherpa 不报错，只是**默默不生效**。
+   * 于是「热词」这个设置对识别毫无影响，用户填了半天只在清洗层
+   * 起了个保护作用。这种沉默失效比报错难查得多。
+   *
+   * 现在：只有 transducer + 真的填了热词，才切到 modified_beam_search。
+   * 其余情况老实用 greedy_search（更快），热词由上层说明它只保护不加权。
+   */
+  const hotwordsFile = isTransducer ? writeHotwords(hotwords) : undefined
+  const decodingMethod = hotwordsFile ? 'modified_beam_search' : 'greedy_search'
 
   return new sherpa.OnlineRecognizer({
     featConfig: { sampleRate: 16000, featureDim: 80 },
@@ -56,7 +72,7 @@ function build(m: ModelPaths, hotwords: string[]): OnlineRecognizer {
       provider: 'cpu',
       debug: 0
     },
-    decodingMethod: 'greedy_search',
+    decodingMethod,
     enableEndpoint: true,
     // rule2：已经解码出字之后，停顿多久算这一句说完 —— 这是用户真正感觉到
     // 「我想一下措辞就被切断了」的那个值，所以做成可配。
