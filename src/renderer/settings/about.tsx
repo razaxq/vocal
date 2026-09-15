@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react'
 import type { AppStats, UpdateStatus } from '@shared/ipc'
 import { Page, Section, Row, Button, Note } from './ui'
 import { useModelStatus, mb } from './models'
+import changelog from '@shared/changelog.json'
 
 function fmtMB(v: number): string {
   return v >= 1024 ? `${(v / 1024).toFixed(2)} GB` : `${v.toFixed(0)} MB`
@@ -142,6 +143,26 @@ export function AboutTab({ updateStatus }: {
         </Row>
       </Section>
 
+      <Section title="更新日志">
+        <div className="divide-y divide-[var(--border)]">
+          {changelog.map((entry) => (
+            <article key={entry.version} className="py-4 first:pt-1">
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <h3 className="text-[13px] font-medium text-[var(--fg)]">v{entry.version}</h3>
+                <time dateTime={entry.date} className="text-[12px] tabular-nums text-[var(--fg-subtle)]">
+                  {entry.date}
+                </time>
+                {stats?.version === entry.version && (
+                  <span className="text-[12px] text-[var(--accent)]">当前版本</span>
+                )}
+              </div>
+              <ul className="mt-2 list-disc space-y-1 pl-4 text-[12px] leading-relaxed text-[var(--fg-muted)]">
+                {entry.changes.map((change) => <li key={change}>{change}</li>)}
+              </ul>
+            </article>
+          ))}
+        </div>
+      </Section>
     </Page>
   )
 }
