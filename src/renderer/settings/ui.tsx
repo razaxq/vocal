@@ -369,18 +369,41 @@ function WinBtn({ onClick, children, label, danger }: {
   )
 }
 
-/** 侧栏顶部的应用标识。 */
+/**
+ * 侧栏顶部的应用标识 —— 就是应用图标本身（build/icon.svg 的精简版）。
+ *
+ * 之前这里是个绿底白麦克风，和任务栏、开始菜单里看到的图标对不上。
+ * 一个应用只该有一个脸：用户在任务栏上认得的那个，打开设置也得是那个。
+ * 蓝色是图标的品牌色，不跟着 --accent 走；界面里的绿仍然是绿。
+ */
 export function AppMark(): React.ReactElement {
   return (
     <div className="drag mb-4 flex h-11 items-center gap-2.5 px-1">
-      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--accent)]">
-        <svg width="13" height="15" viewBox="0 0 11 13" aria-hidden>
-          <path d="M5.5 1a1.8 1.8 0 0 1 1.8 1.8v3.6a1.8 1.8 0 1 1-3.6 0V2.8A1.8 1.8 0 0 1 5.5 1Z"
-                fill="white" />
-          <path d="M1.6 6.1a3.9 3.9 0 0 0 7.8 0M5.5 10v2"
-                stroke="white" strokeWidth="1.3" strokeLinecap="round" fill="none" />
-        </svg>
-      </span>
+      <svg width="26" height="26" viewBox="220 128 710 706" aria-hidden className="shrink-0">
+        <defs>
+          <linearGradient id="vm-a" x1="0%" y1="15%" x2="100%" y2="85%">
+            <stop offset="0%" stopColor="#3A8CFF" />
+            <stop offset="52%" stopColor="#246EEB" />
+            <stop offset="100%" stopColor="#123FCA" />
+          </linearGradient>
+          <linearGradient id="vm-b" x1="0%" y1="100%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#3387FA" />
+            <stop offset="58%" stopColor="#2268E3" />
+            <stop offset="100%" stopColor="#123FC5" />
+          </linearGradient>
+        </defs>
+        <path d="M651 338C646 432 615 515 558 585C498 659 414 717 287 778"
+              fill="none" stroke="url(#vm-b)" strokeWidth="98"
+              strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M362 430C420 526 489 608 575 669C646 720 724 751 812 775"
+              fill="none" stroke="url(#vm-a)" strokeWidth="98"
+              strokeLinecap="round" strokeLinejoin="round" />
+        <rect x="473" y="134" width="102" height="166" rx="51" fill="url(#vm-a)" />
+        <rect x="220" y="240" width="570" height="112" rx="56" fill="url(#vm-a)" />
+        <rect x="738" y="430" width="46" height="112" rx="23" fill="url(#vm-a)" />
+        <rect x="808" y="388" width="46" height="196" rx="23" fill="url(#vm-a)" />
+        <rect x="878" y="430" width="46" height="112" rx="23" fill="url(#vm-a)" />
+      </svg>
       <span className="text-[16px] font-semibold tracking-tight text-[var(--fg)]">Vocal</span>
     </div>
   )
