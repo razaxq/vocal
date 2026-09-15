@@ -6,7 +6,7 @@
       "id": "paraformer-zh-en",
       "name": "Paraformer 中英双语",
       "langs": "中文 / 英文",
-      "note": "默认。中英混排最稳，日常写代码、聊天都合适。",
+      "note": "中英混排。下载包同时含完整精度和 int8 权重，安装时仅保留 int8。",
       "kind": "online-paraformer",
       "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-paraformer-bilingual-zh-en.tar.bz2",
       "dir": "sherpa-onnx-streaming-paraformer-bilingual-zh-en",
@@ -19,7 +19,9 @@
       "prune": [
         "encoder.onnx",
         "decoder.onnx"
-      ]
+      ],
+      "downloadBytes": 1047319737,
+      "installedBytes": 237202501
     },
     {
       "id": "paraformer-zh-yue-en",
@@ -38,7 +40,8 @@
       "prune": [
         "encoder.onnx",
         "decoder.onnx"
-      ]
+      ],
+      "downloadBytes": 1047671211
     },
     {
       "id": "zipformer-zh",
@@ -55,7 +58,8 @@
         "joiner": "joiner.int8.onnx",
         "tokens": "tokens.txt"
       },
-      "prune": []
+      "prune": [],
+      "downloadBytes": 132634597
     },
     {
       "id": "zipformer-zh-xlarge",
@@ -72,7 +76,8 @@
         "joiner": "joiner.int8.onnx",
         "tokens": "tokens.txt"
       },
-      "prune": []
+      "prune": [],
+      "downloadBytes": 597755927
     }
   ],
   "offline": [
@@ -89,7 +94,8 @@
         "model": "model.int8.onnx",
         "tokens": "tokens.txt"
       },
-      "prune": []
+      "prune": [],
+      "downloadBytes": 163002883
     },
     {
       "id": "sensevoice-2025",
@@ -104,7 +110,8 @@
         "model": "model.int8.onnx",
         "tokens": "tokens.txt"
       },
-      "prune": []
+      "prune": [],
+      "downloadBytes": 165783878
     },
     {
       "id": "zipformer-zh-en",
@@ -130,7 +137,8 @@
       "generateBpeVocab": {
         "from": "bbpe.model",
         "to": "bbpe.vocab"
-      }
+      },
+      "downloadBytes": 312398028
     },
     {
       "id": "paraformer-yue-offline",
@@ -154,7 +162,8 @@
         "add-model-metadata.py",
         "generate-tokens.py",
         "quantize-model.py"
-      ]
+      ],
+      "downloadBytes": 1059453702
     },
     {
       "id": "paraformer-zh-dialect",
@@ -171,7 +180,8 @@
       },
       "prune": [
         "test_wavs"
-      ]
+      ],
+      "downloadBytes": 228262632
     }
   ],
   "punct": [
@@ -187,7 +197,9 @@
       "files": {
         "model": "model.int8.onnx"
       },
-      "prune": []
+      "prune": [],
+      "downloadBytes": 64717756,
+      "installedBytes": 79736098
     }
   ],
   "vad": [
@@ -204,7 +216,8 @@
       "files": {
         "model": "silero_vad.onnx"
       },
-      "prune": []
+      "prune": [],
+      "downloadBytes": 643854
     }
   ]
 }

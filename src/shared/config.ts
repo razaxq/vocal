@@ -139,7 +139,7 @@ export const configSchema = z.object({
   }).prefault({}),
 
   update: z.object({
-    /** 后台自动检查并下载，退出应用时装上。便携版这个开关不起作用。 */
+    /** 启动及运行期间自动检查；用户点击后才下载并安装。 */
     auto: z.boolean().default(true)
   }).prefault({})
 })

@@ -19,6 +19,9 @@ export interface ModelEntry {
   url: string
   dir: string
   approxMB: number
+  /** 官方发布资产的压缩包大小，和安装后磁盘占用分别展示。 */
+  downloadBytes?: number
+  installedBytes?: number
   archive?: string
   files: Record<string, string>
   prune: string[]
@@ -77,4 +80,3 @@ export function deriveProfile(models: { streaming: string; offline: string }): A
   if (hasStream) return 'streaming-only'
   return 'final-only'
 }
-

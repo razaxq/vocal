@@ -23,6 +23,10 @@ import {
 } from './windows/panelWindow'
 import { openSettingsWindow } from './windows/settingsWindow'
 import { UpdaterService } from './services/updater'
+import { APP_ID } from './windows/appIdentity'
+
+// 必须在创建任何窗口之前设置，让 Windows 使用 Vocal 的任务栏身份。
+app.setAppUserModelId(APP_ID)
 
 // 只允许一个实例：热键和低级键盘钩子不能有两份
 if (!app.requestSingleInstanceLock()) {
@@ -82,6 +86,7 @@ let hotkeys: HotkeyService
 let session: SessionController
 let downloader: ModelDownloader
 let updater: UpdaterService
+let modelMaintenance = false
 
 /**
  * 面板的显隐都是分步的（先压暗再显示、先放动画再藏），中间挂着定时器。
@@ -207,7 +212,7 @@ async function bootstrap(): Promise<void> {
   }
 
   hotkeys = new HotkeyService({
-    onStart: () => session.start(),
+    onStart: () => { if (!modelMaintenance) session.start() },
     onStop: () => session.stop(),
     onCancel: () => void session.cancel()
   })
@@ -226,9 +231,13 @@ async function bootstrap(): Promise<void> {
     broadcast(CH.modelsProgress, p)
   })
 
-  // 便携版只提示有新版，不自己覆盖安装 —— 它的数据就在 exe 旁边
+  // 两种发行方式共用检查和通知；安装方式交给更新服务处理。
   updater = new UpdaterService(!dataDir.portable, (st: UpdateStatus) => {
     broadcast(CH.updateStatus, st)
+  }, () => {
+    if (session.current !== 'idle' && session.current !== 'error') {
+      throw new Error('请先结束当前语音输入，再点击更新')
+    }
   })
   updater.start(cfg.update.auto)
 
@@ -307,7 +316,24 @@ function registerIpc(injector: TextInjector): void {
   ipcMain.handle(CH.modelsCancel, (_e, id: string) => downloader.cancel(id))
   ipcMain.handle(CH.modelsDelete, async (_e, id: string) => {
     const entry = findAnyModel(id)
-    if (entry) await downloader.remove(entry)
+    if (!entry) throw new Error('找不到这个模型')
+    if (modelMaintenance) throw new Error('有模型正在处理，请稍后重试')
+    if (downloader.isDownloading(id)) throw new Error('请先取消下载，再删除模型')
+    const selected = config.get().models
+    const inUse = selected.streaming === id || selected.offline === id || entry.kind === 'punct-ct-transformer'
+    if (inUse && session.current !== 'idle' && session.current !== 'error') {
+      throw new Error('请先结束当前语音输入，再删除正在使用的模型')
+    }
+    modelMaintenance = true
+    try {
+      // Windows 会锁住正在被识别进程使用的权重，释放进程后才能删除。
+      if (inUse) await asr.dispose()
+      await downloader.remove(entry)
+    } finally {
+      modelMaintenance = false
+      broadcast(CH.modelsChanged)
+      if (inUse || reloadPending) await reloadAsr(config.get())
+    }
   })
   ipcMain.handle(CH.modelsOpenDir, () => shell.openPath(modelsRoot()))
 
@@ -338,6 +364,7 @@ function registerIpc(injector: TextInjector): void {
   })
 
   ipcMain.handle(CH.updateCheck, () => updater.check())
+  ipcMain.handle(CH.updateGet, () => updater.current)
   ipcMain.handle(CH.updateInstall, () => updater.installNow())
 
   // 无边框窗口自己画标题栏，最小化和关闭得走 IPC
@@ -360,7 +387,7 @@ function registerIpc(injector: TextInjector): void {
  */
 let reloadPending = false
 async function reloadAsr(cfg: AppConfig): Promise<void> {
-  if (session.current !== 'idle' && session.current !== 'error') {
+  if (modelMaintenance || (session.current !== 'idle' && session.current !== 'error')) {
     reloadPending = true
     return
   }

@@ -17,19 +17,18 @@ import { createReadStream } from 'node:fs'
 import { mkdir, writeFile, open } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 
-/** bzip2 的魔数。文件头不对就不用往下试了，那是下载出了问题，不是解压。 */
+/** bzip2 的魔数。文件头不对时拒绝解压；用十六进制诊断，避免把二进制显示成乱码。 */
 export async function assertBzip2(file) {
   const fh = await open(file, 'r')
   try {
     const buf = Buffer.alloc(3)
     const { bytesRead } = await fh.read(buf, 0, 3, 0)
     if (bytesRead === 3 && buf.toString('latin1') === 'BZh') return
-    const head = Buffer.alloc(120)
-    const r = await fh.read(head, 0, 120, 0)
-    const text = head.subarray(0, r.bytesRead).toString('utf8').replace(/\s+/g, ' ').trim()
+    const head = Buffer.alloc(8)
+    const r = await fh.read(head, 0, head.length, 0)
+    const hex = head.subarray(0, r.bytesRead).toString('hex').match(/../g)?.join(' ') ?? '空文件'
     throw new Error(
-      `下下来的不是 bzip2 归档（开头是「${text.slice(0, 80)}」）。`
-      + '多半是网络被拦截或者下载地址失效了。'
+      `下载文件的格式不正确或内容不完整，请重试（文件头：${hex}）。`
     )
   } finally {
     await fh.close()

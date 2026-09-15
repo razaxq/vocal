@@ -24,9 +24,10 @@ function fmtUptime(ms: number): string {
   return `${s} 秒`
 }
 
-export function AboutTab({ cfg, patch }: {
+export function AboutTab({ cfg, patch, updateStatus }: {
   cfg: AppConfig
   patch: (p: Partial<AppConfig>) => Promise<void>
+  updateStatus: UpdateStatus | null
 }): React.ReactElement {
   const { status } = useModelStatus()
   const [stats, setStats] = useState<AppStats | null>(null)
@@ -91,7 +92,7 @@ export function AboutTab({ cfg, patch }: {
                 </div>
               ))}
             </div>
-            <Note>识别模型常驻内存，关掉流式或定稿其中一层能省下大约一半。</Note>
+            <Note>不需要实时预览时，可以关闭流式模型，保留定稿识别。具体节省量取决于所选模型。</Note>
           </>
         ) : (
           <div className="text-[13px] text-[var(--fg-subtle)]">读取中…</div>
@@ -119,7 +120,7 @@ export function AboutTab({ cfg, patch }: {
         </Row>
       </Section>
 
-      <UpdateSection cfg={cfg} patch={patch} portable={stats?.portable ?? false} />
+      <UpdateSection cfg={cfg} patch={patch} st={updateStatus} />
 
       <Section title="版本">
         <Row label="Vocal">
@@ -146,21 +147,21 @@ export function AboutTab({ cfg, patch }: {
   )
 }
 
-/**
- * 更新。
- *
- * 安装版后台下载，下完不打断 —— 等下次退出应用自动装上。
- * 语音输入随时可能被热键叫起来，弹「立即重启」的框把人从正在写的
- * 东西里拽出来是最糟的做法，所以「立即重启更新」只做成一个按钮，
- * 用户想现在装才点。
- */
-function UpdateSection({ cfg, patch, portable }: {
+/** 检查、下载、安装用同一个入口，发行方式不出现在操作说明里。 */
+function UpdateSection({ cfg, patch, st }: {
   cfg: AppConfig
   patch: (p: Partial<AppConfig>) => Promise<void>
-  portable: boolean
+  st: UpdateStatus | null
 }): React.ReactElement {
-  const [st, setSt] = useState<UpdateStatus | null>(null)
-  useEffect(() => window.vocal.onUpdateStatus(setSt), [])
+  const [actionError, setActionError] = useState('')
+  const busy = st?.state === 'checking' || st?.state === 'downloading' || st?.state === 'installing'
+  const act = async (): Promise<void> => {
+    setActionError('')
+    try {
+      if (st?.latest) await window.vocal.installUpdate()
+      else await window.vocal.checkUpdate()
+    } catch (e) { setActionError(e instanceof Error ? e.message : String(e)) }
+  }
 
   const line = ((): string => {
     if (!st) return ''
@@ -168,45 +169,38 @@ function UpdateSection({ cfg, patch, portable }: {
       case 'dev': return '开发模式下不检查更新。'
       case 'checking': return '正在检查…'
       case 'latest': return '已经是最新版本。'
-      case 'available': return `有新版本 ${st.latest ?? ''}，去 GitHub Releases 下载。`
-      case 'downloading': return `正在后台下载 ${st.latest ?? ''}… ${st.percent ?? 0}%`
-      case 'ready': return `${st.latest ?? ''} 已下载完成，下次退出 Vocal 时自动装上。`
-      case 'error': return `检查更新失败：${st.message ?? ''}`
+      case 'available': return `有新版本 ${st.latest ?? ''}`
+      case 'downloading': return `正在下载 ${st.latest ?? ''}… ${st.percent ?? 0}%`
+      case 'ready': return `${st.latest ?? ''} 已准备好`
+      case 'installing': return '正在更新，完成后自动重新打开…'
+      case 'error': return `更新失败：${st.message ?? ''}`
       default: return ''
     }
   })()
 
   return (
     <Section title="更新">
-      {!portable && (
-        <Row label="自动更新" hint="后台下载，退出时装上，不打断你">
+        <Row label="启动时检查更新">
           <Toggle
             checked={cfg.update.auto}
             onChange={(b) => patch({ update: { ...cfg.update, auto: b } })}
           />
         </Row>
-      )}
-      <Row label="检查">
+      <Row label="版本更新">
         <div className="flex items-center gap-2">
           <Button
-            variant="default"
-            onClick={() => void window.vocal.checkUpdate().then(setSt)}
-            disabled={st?.state === 'checking' || st?.state === 'downloading'}
+            variant={st?.latest ? 'primary' : 'default'}
+            onClick={() => void act()}
+            disabled={busy}
           >
-            检查更新
+            {st?.state === 'downloading' ? '正在下载…'
+              : st?.state === 'installing' ? '正在更新…'
+                : st?.state === 'checking' ? '正在检查…'
+                  : st?.latest ? (st.state === 'error' ? '重试更新' : '立即更新') : '检查更新'}
           </Button>
-          {st?.state === 'ready' && (
-            <Button variant="primary" onClick={() => void window.vocal.installUpdate()}>
-              立即重启更新
-            </Button>
-          )}
         </div>
         {line && <div className="mt-2"><Note tone={st?.state === 'error' ? 'danger' : 'muted'}>{line}</Note></div>}
-        {portable && (
-          <div className="mt-2">
-            <Note>便携版不自动覆盖安装 —— 你的数据就在程序旁边，交给安装器去写风险太大。有新版本会在这里提示，手动下载替换即可。</Note>
-          </div>
-        )}
+        {actionError && <div className="mt-2"><Note tone="danger">{actionError}</Note></div>}
       </Row>
     </Section>
   )

@@ -5,7 +5,7 @@
  * 之前「选一个 + 再点下载」是两步，而这两步永远同向，合成一步。
  * 「不使用」是列表里的一行，不是另一个开关：不用这一层，就选那一行。
  */
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import type { AppConfig, ModelStatusInfo, ModelProgress, AsrStatus } from '@shared/ipc'
 import { modelsOf, MODEL_NONE, type ModelEntry } from '@shared/modelRegistry'
 import { Section, Button } from './ui'
@@ -37,6 +37,7 @@ export function useModelStatus(): {
   }, [])
 
   useEffect(reload, [reload])
+  useEffect(() => window.vocal.onModelsChanged(reload), [reload])
 
   useEffect(() => window.vocal.onModelProgress((p) => {
     setProgress((prev) => ({ ...prev, [p.id]: p }))
@@ -141,6 +142,7 @@ function PickRow({ active, disabled, name, sub, onSelect, right, below }: {
       tabIndex={disabled ? -1 : 0}
       onClick={() => { if (!disabled) onSelect() }}
       onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return
         if (!disabled && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onSelect() }
       }}
       className={`rounded-lg px-2.5 py-2.5 transition-colors ${
@@ -185,6 +187,23 @@ function ModelRow({ model, active, installed, bytes, progress, onSelect }: {
   progress?: ModelProgress
   onSelect: () => void
 }): React.ReactElement {
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
+  const deletePending = useRef(false)
+  const remove = async (): Promise<void> => {
+    if (deletePending.current) return
+    deletePending.current = true
+    setDeleting(true)
+    setDeleteError('')
+    try {
+      await window.vocal.deleteModel(model.id)
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : String(e))
+    } finally {
+      deletePending.current = false
+      setDeleting(false)
+    }
+  }
   const busy = progress && !['done', 'error', 'cancelled'].includes(progress.phase)
   const pct = progress && progress.total > 0
     ? Math.min(100, (progress.received / progress.total) * 100)
@@ -193,6 +212,7 @@ function ModelRow({ model, active, installed, bytes, progress, onSelect }: {
   return (
     <PickRow
       active={active}
+      disabled={deleting}
       name={model.name}
       sub={`${model.langs} · ${model.note}`}
       onSelect={onSelect}
@@ -205,14 +225,14 @@ function ModelRow({ model, active, installed, bytes, progress, onSelect }: {
         ) : installed ? (
           <>
             <span className="text-[11px] tabular-nums text-[var(--fg-subtle)]">{mb(bytes)}</span>
-            <Button variant="danger" size="sm"
-                    onClick={() => void window.vocal.deleteModel(model.id)}>
-              删除
+            <Button variant={deleting ? 'default' : 'danger'} size="sm"
+                    disabled={deleting} onClick={() => void remove()}>
+              {deleting ? '正在删除…' : '删除'}
             </Button>
           </>
         ) : (
           <span className="text-[11px] tabular-nums text-[var(--fg-subtle)]">
-            约 {model.approxMB} MB
+            下载约 {model.downloadBytes ? mb(model.downloadBytes) : `${model.approxMB} MB`}
           </span>
         )
       }
@@ -235,13 +255,23 @@ function ModelRow({ model, active, installed, bytes, progress, onSelect }: {
             </div>
           )}
 
-          {progress?.phase === 'error' && (
+          {deleteError && (
+            <p role="alert" className="mt-2 pl-[26px] text-[11px] text-[var(--danger)]">
+              删除失败：{deleteError}
+            </p>
+          )}
+          {!installed && !busy && !deleting && model.installedBytes && (
+            <p className="mt-1 pl-[26px] text-[11px] text-[var(--fg-subtle)]">
+              安装后约 {mb(model.installedBytes)}
+            </p>
+          )}
+          {!installed && progress?.phase === 'error' && (
             <p className="mt-2 pl-[26px] text-[11px] text-[var(--danger)]">
               下载失败：{progress.message}
             </p>
           )}
 
-          {active && !installed && !busy && (
+          {active && !installed && !busy && !deleting && (
             <p className="mt-2 pl-[26px] text-[11px] text-[var(--warn)]">
               还没下载。点这一行开始下载。
             </p>

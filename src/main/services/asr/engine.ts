@@ -394,14 +394,24 @@ export class AsrEngine {
   async dispose(): Promise<void> {
     this.disposing = true
     this.cancelIdleTimer()
-    this.stream?.postMessage({ type: 'shutdown' } satisfies StreamCommand)
-    this.finalize?.postMessage({ type: 'shutdown' } satisfies FinalizeCommand)
-    await new Promise((r) => setTimeout(r, 200))
-    this.stream?.kill()
-    this.finalize?.kill()
-    this.stream = null
-    this.finalize = null
-    this.ready = null
-    this.disposing = false
+    const workers = [this.stream, this.finalize].filter((p): p is UtilityProcess => p !== null)
+    try {
+      await Promise.all(workers.map((worker) => new Promise<void>((resolve, reject) => {
+        if (worker.pid === undefined) { resolve(); return }
+        const force = setTimeout(() => worker.kill(), 200)
+        const timeout = setTimeout(() => {
+          worker.off('exit', exited)
+          reject(new Error('识别进程未能退出，请稍后重试'))
+        }, 5000)
+        const exited = (): void => { clearTimeout(force); clearTimeout(timeout); resolve() }
+        worker.once('exit', exited)
+        worker.postMessage({ type: 'shutdown' })
+      })))
+      this.stream = null
+      this.finalize = null
+      this.ready = null
+    } finally {
+      this.disposing = false
+    }
   }
 }

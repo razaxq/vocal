@@ -128,7 +128,7 @@ async function main() {
         const mark = s.ok ? '\x1b[32m✓\x1b[0m' : '·'
         const def = DEFAULTS[slot] === m.id ? ' (默认)' : ''
         console.log(`    ${mark} ${m.id.padEnd(22)} ${m.name}${def}`)
-        console.log(`      ${m.langs} · 约 ${m.approxMB} MB · ${m.note}`)
+        console.log(`      ${m.langs} · 下载约 ${human(m.downloadBytes ?? m.approxMB * (1 << 20))} · ${m.note}`)
       }
       console.log('')
     }
@@ -146,7 +146,7 @@ async function main() {
       continue
     }
 
-    console.log(`  ↓ ${item.name} — ${item.langs} — 约 ${item.approxMB} MB`)
+    console.log(`  ↓ ${item.name} — ${item.langs} — 下载约 ${human(item.downloadBytes ?? item.approxMB * (1 << 20))}`)
     const targetDir = join(dest, item.dir)
 
     if (item.archive === 'raw') {

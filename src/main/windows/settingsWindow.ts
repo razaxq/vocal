@@ -1,13 +1,7 @@
 /** 设置 / 历史窗口。普通窗口，可以抢焦点。 */
 import { BrowserWindow, app, nativeTheme } from 'electron'
 import { join } from 'node:path'
-
-/** 窗口图标。打包后跟 exe 图标走，开发时得自己指一下，否则是 Electron 默认图标。 */
-function iconPath(): string {
-  return app.isPackaged
-    ? join(process.resourcesPath, 'icon.png')
-    : join(app.getAppPath(), 'resources', 'icon.png')
-}
+import { appIconPath, setWindowAppDetails } from './appIdentity'
 
 let win: BrowserWindow | null = null
 
@@ -29,7 +23,7 @@ export function openSettingsWindow(tab?: string): BrowserWindow {
     minHeight: 520,
     show: false,
     title: 'Vocal 设置',
-    icon: iconPath(),
+    icon: appIconPath(),
     autoHideMenuBar: true,
     // 系统标题栏和自定义配色对不上，高度也不搭。自己画一条（见 ui.tsx 的 TitleBar）
     frame: false,
@@ -41,6 +35,8 @@ export function openSettingsWindow(tab?: string): BrowserWindow {
       contextIsolation: true
     }
   })
+
+  setWindowAppDetails(win)
 
   win.on('ready-to-show', () => {
     win?.show()

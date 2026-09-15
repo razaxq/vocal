@@ -23,7 +23,12 @@
 | 产物 | 给谁 | 数据在哪 | 自动更新 |
 |---|---|---|---|
 | `Vocal-Setup-x.y.z.exe`（NSIS） | 大多数人 | `%APPDATA%\Vocal` | ✅ |
-| `Vocal-x.y.z-win.zip` | 想随身带、或不想装东西的人 | exe 旁边的 `data/` | ❌（只提示） |
+| `Vocal-x.y.z-win.zip` | 想随身带、或不想装东西的人 | exe 旁边的 `data/` | ✅ |
+
+启动只检查版本，「关于」旁显示红点；用户点击后下载并重启更新。
+安装版使用 NSIS；便携版下载同一 Release 的 `Vocal-*-win.zip`，校验 GitHub 资产的
+SHA-256 和大小后，由独立助手替换程序文件，保留 `data/`，失败时恢复备份。
+ZIP 必须由 GitHub Release 资产提供有效的 `digest`，缺失时拒绝安装。
 
 两者由**卸载程序**区分：NSIS 一定会在安装目录里留一个 `Uninstall Vocal.exe`，
 zip 里绝不会有。程序据此判断自己是哪一种（见 `main/index.ts` 的 `setupDataDir`）。

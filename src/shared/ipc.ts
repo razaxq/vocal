@@ -16,9 +16,11 @@ export const CH = {
   modelsDownload: 'models:download',
   modelsCancel: 'models:cancel',
   modelsDelete: 'models:delete',
+  modelsChanged: 'models:changed',
   modelsOpenDir: 'models:openDir',
   appStats: 'app:stats',
   updateCheck: 'update:check',
+  updateGet: 'update:get',
   updateInstall: 'update:install',
   winMinimize: 'win:minimize',
   winClose: 'win:close',
@@ -106,7 +108,7 @@ export interface AppConfig {
     launchAtLogin: boolean
   }
   update: {
-    /** 自动检查并后台下载新版本 */
+    /** 启动时及运行期间自动检查新版本 */
     auto: boolean
   }
 }
@@ -152,7 +154,7 @@ export interface ProcStat {
 export interface AppStats {
   version: string
   electron: string
-  /** 便携模式下不自动更新，界面要说清楚 */
+  /** 当前数据目录采用便携布局 */
   portable: boolean
   uptimeMs: number
   totalMemoryMB: number
@@ -161,7 +163,7 @@ export interface AppStats {
 
 /** 自动更新的状态。 */
 export interface UpdateStatus {
-  state: 'idle' | 'dev' | 'checking' | 'latest' | 'available' | 'downloading' | 'ready' | 'error'
+  state: 'idle' | 'dev' | 'checking' | 'latest' | 'available' | 'downloading' | 'ready' | 'installing' | 'error'
   /** 当前运行的版本 */
   version: string
   /** 检测到的新版本号 */
@@ -204,6 +206,7 @@ export interface VocalBridge {
   openModelsDir(): Promise<void>
   appStats(): Promise<AppStats>
   checkUpdate(): Promise<UpdateStatus>
+  getUpdateStatus(): Promise<UpdateStatus>
   installUpdate(): Promise<void>
   minimizeWindow(): Promise<void>
   closeWindow(): Promise<void>
@@ -222,6 +225,7 @@ export interface VocalBridge {
   onLevel(cb: (rms: number) => void): () => void
   onToast(cb: (msg: { level: 'info' | 'warn' | 'error'; text: string }) => void): () => void
   onModelProgress(cb: (p: ModelProgress) => void): () => void
+  onModelsChanged(cb: () => void): () => void
   onThemeChanged(cb: (mode: string) => void): () => void
   /** 麦克风设置变了，面板要重新打开采集 */
   onAudioConfigChanged(cb: () => void): () => void

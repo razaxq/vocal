@@ -24,6 +24,7 @@ import { MicSection } from './mic'
 import { AboutTab } from './about'
 import { applyTheme, watchSystemTheme, type ThemeMode } from '@renderer/shared/theme'
 import { CleanupPreview } from './CleanupPreview'
+import { useUpdateStatus } from './updateStatus'
 
 type Tab = 'hotkey' | 'asr' | 'cleanup' | 'polish' | 'inject' | 'appearance' | 'history' | 'about'
 
@@ -44,6 +45,7 @@ const OTHER: Array<[Tab, string]> = [
 export function Settings(): React.ReactElement {
   const [cfg, setCfg] = useState<AppConfig | null>(null)
   const [tab, setTab] = useState<Tab>('hotkey')
+  const updateStatus = useUpdateStatus()
 
   useEffect(() => { void window.vocal.getConfig().then(setCfg) }, [])
 
@@ -75,7 +77,13 @@ export function Settings(): React.ReactElement {
           : 'text-[var(--fg-muted)] hover:bg-[var(--surface-hover)]'
       }`}
     >
-      {label}
+      <span className="inline-flex items-center gap-2">
+        {label}
+        {id === 'about' && updateStatus?.latest && (
+          <span role="status" aria-label="有新版本" title="有新版本"
+                className="h-1.5 w-1.5 rounded-full bg-[var(--danger)]" />
+        )}
+      </span>
     </button>
   )
 
@@ -103,7 +111,7 @@ export function Settings(): React.ReactElement {
           {tab === 'inject' && <InjectionTab cfg={cfg} patch={patch} />}
           {tab === 'appearance' && <AppearanceTab cfg={cfg} patch={patch} />}
           {tab === 'history' && <HistoryTab />}
-          {tab === 'about' && <AboutTab cfg={cfg} patch={patch} />}
+          {tab === 'about' && <AboutTab cfg={cfg} patch={patch} updateStatus={updateStatus} />}
         </main>
       </div>
     </div>
@@ -231,7 +239,7 @@ function AsrTab({ cfg, patch }: TabProps): React.ReactElement {
       <ModelGroup
         slot="streaming"
         title="流式模型"
-        hint="说话时实时出字。点哪个用哪个，没下载的会自动开始下载。"
+        hint="负责实时预览和断句。只关注最终文字时可选「不使用」，减少内存占用。"
         cfg={cfg} patch={patch} status={status} progress={progress}
         allowNone={cfg.models.offline !== MODEL_NONE}
       />

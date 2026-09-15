@@ -5,16 +5,14 @@
  * 对拿到安装包的人就是死路。这里把整条链路搬进应用：
  * 下载 → 解压 → 剔除冗余文件 → 校验，全程有进度，可取消。
  *
- * 解压用系统自带的 tar（Windows 10 1803+ 起内置 bsdtar，支持 bz2）。
- * 不引入纯 JS 的 bzip2 解压库是因为它慢得离谱 —— 1GB 的包要跑好几分钟，
- * 而系统 tar 只要十几秒。系统里没有 tar 时会给出明确提示而不是卡死。
+ * 解压优先用系统 tar，不支持 bzip2 时回落到纯 JS 实现。
  */
 import { createWriteStream } from 'node:fs'
 import { mkdir, rm, stat, readdir, readFile, writeFile, rename } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
-import { Readable } from 'node:stream'
+import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { ModelEntry } from '@shared/modelRegistry'
 import type { ModelProgress } from '@shared/ipc'
@@ -25,7 +23,13 @@ export class ModelDownloader {
   /** 正在下载的任务，id → 中止控制器 */
   private active = new Map<string, AbortController>()
 
-  constructor(private root: string, private onProgress: ProgressFn) {}
+  private root: string
+  private onProgress: ProgressFn
+
+  constructor(root: string, onProgress: ProgressFn) {
+    this.root = root
+    this.onProgress = onProgress
+  }
 
   isDownloading(id: string): boolean {
     return this.active.has(id)
@@ -71,18 +75,23 @@ export class ModelDownloader {
       let lastEmit = 0
 
       const body = Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0])
-      body.on('data', (chunk: Buffer) => {
-        received += chunk.length
-        const now = Date.now()
-        // 限流：下载几百 MB 时每个 chunk 都推会把 IPC 打爆
-        if (now - lastEmit > 200) {
-          lastEmit = now
-          emit({ phase: 'downloading', received, total })
+      // 进度统计必须放在写入管道内。提前监听 body 的 data 会让它立即流动，
+      // 下面 await mkdir 期间收到的块就会丢失，连归档的 BZh 文件头也保不住。
+      const progress = new Transform({
+        transform(chunk: Buffer, _encoding, callback) {
+          received += chunk.length
+          const now = Date.now()
+          // 限流：下载几百 MB 时每个 chunk 都推会把 IPC 打爆
+          if (now - lastEmit > 200) {
+            lastEmit = now
+            emit({ phase: 'downloading', received, total })
+          }
+          callback(null, chunk)
         }
       })
 
       await mkdir(dirname(tmpFile), { recursive: true })
-      await pipeline(body, createWriteStream(tmpFile))
+      await pipeline(body, progress, createWriteStream(tmpFile), { signal: ctrl.signal })
       emit({ phase: 'downloading', received, total })
 
       /* ---------- 解压 ---------- */
@@ -147,8 +156,6 @@ export class ModelDownloader {
     }
   }
 }
-
-/** 系统 tar 解压 .tar.bz2，剥掉顶层目录。 */
 
 async function dirSize(dir: string): Promise<number> {
   let total = 0

@@ -9,6 +9,7 @@
 import { BrowserWindow, screen, app } from 'electron'
 import { join } from 'node:path'
 import { getCaretScreenRect, getForegroundWindowRect } from '@main/win32/user32'
+import { appIconPath, setWindowAppDetails } from './appIdentity'
 
 /**
  * 面板有两个尺寸。
@@ -52,6 +53,8 @@ export function createPanelWindow(compact: boolean): BrowserWindow {
   const win = new BrowserWindow({
     width: w,
     height: h,
+    title: 'Vocal',
+    icon: appIconPath(),
     show: false,
     frame: false,
     transparent: true,
@@ -76,6 +79,7 @@ export function createPanelWindow(compact: boolean): BrowserWindow {
     }
   })
 
+  setWindowAppDetails(win)
   win.setAlwaysOnTop(true, 'screen-saver')
   // 让面板在全屏应用之上也能出现
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
