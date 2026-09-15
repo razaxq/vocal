@@ -4,10 +4,6 @@ dist/
 release/
 *.log
 
-# 模型体积很大，永远不进仓库
-resources/models/
-!resources/models/.gitkeep
-
 .env
 .env.local
 .vscode/

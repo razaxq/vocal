@@ -5,8 +5,21 @@ Windows 桌面语音输入。按住一个键说话，松开，文字出现在你
 目标不是「能把语音转成字」，而是**让语音真的能当成一种输入法来用** —— 任何应用、任何输入框、全本地、不抢焦点。
 
 > 状态：可用。注入、热键、焦点保持、流式 + 分段定稿都已在 Windows 实机跑通
-> （SenseVoice 重转写 5 秒语音实测 107ms）。设计与取舍见 [`docs/DESIGN.md`](docs/DESIGN.md)，
-> 发布流程见 [`docs/RELEASE.md`](docs/RELEASE.md)。
+> （SenseVoice 重转写 5 秒语音实测 107ms）。设计与取舍见 [`docs/DESIGN.md`](docs/DESIGN.md)。
+
+## 下载
+
+去 [Releases](https://github.com/razaxq/vocal/releases) 拿最新版，两个包选一个：
+
+| 包 | 适合 | 数据位置 | 自动更新 |
+|---|---|---|---|
+| `Vocal-Setup-x.y.z.exe` | 大多数人 | `%APPDATA%\Vocal` | ✅ 后台下载，退出时装上 |
+| `Vocal-x.y.z-win.zip` | 想随身带、不想装东西 | 解压目录里的 `data/` | ❌ 只提示有新版 |
+
+装完先进设置的「识别」页把模型下下来（约 500MB，一次性）。
+
+> 没有代码签名，第一次运行 Windows 会弹 SmartScreen 蓝框，点「更多信息 → 仍要运行」。
+> 证书一年要几百刀，个人项目先不买。介意的话可以自己 clone 下来构建。
 
 ---
 
@@ -49,7 +62,7 @@ Windows 桌面语音输入。按住一个键说话，松开，文字出现在你
 # 依赖（纯预编译，不需要编译工具链）
 npm install
 
-# 下载模型（约 500MB，落到 %APPDATA%\Vocal\models）
+# 下载模型（约 500MB）。也可以跳过这步，启动后在设置的「识别」页点着下
 npm run models
 npm run models:list     # 只看状态
 
@@ -72,19 +85,24 @@ npm run dist            # 产物在 release/
 所有原生模块都是预编译的，`npm install` 不会跑 node-gyp。
 解压模型用系统自带的 `tar`（Windows 10 1803+ 自带），没有的话装 7-Zip 并加进 PATH。
 
-LLM 润色是可选的，照着 `.env.example` 在设置里填 base URL / key / model 即可，不填就纯离线跑。
+书面化整理是可选的，在设置的「整理」页填 base URL / key / model（任何 OpenAI 兼容端点）。
+不填就纯离线跑，其余功能一个不少。
 
 ## 已知限制
 
 - **无法向管理员权限的窗口注入**。本应用以 `asInvoker` 运行，Windows 的 UIPI 会拦截跨完整性级别的输入注入。提权会导致反向的问题（无法注入普通进程），两头不可兼得。
 - **部分反作弊游戏屏蔽合成输入**。不在目标场景内。
 - **仅 Windows x64**。代码里没有为跨平台留抽象层。
-- 常驻内存约 800MB（模型常驻）。可以在设置里切到 `streaming-only` 档降到约 400MB。
+- **模型常驻要吃几百 MB 内存**。三处可以压：只用流式模型（省掉定稿模型）、
+  只用定稿模型（省掉流式模型）、以及默认开着的「空闲 10 分钟卸载模型」。
+  实时占用在设置的「关于」页按进程列得很清楚，不用去任务管理器猜。
 
 ## 目录
 
 ```
-docs/             设计文档与 ADR
+.github/          CI 与发版流水线
+build/            图标（icon.svg 是源）
+docs/             设计文档、ADR、发布流程
 scripts/          模型清单与下载脚本
 src/shared/       跨进程类型、配置、规则清洗（textCleanup.ts）
 src/main/         主进程：热键、会话编排、音频缓冲、注入、Win32 FFI
@@ -92,7 +110,7 @@ src/asr-worker/   两个工作进程：stream.ts（流式）、finalize.ts（定
 src/renderer/     悬浮面板与设置窗口
 ```
 
-完整目录见 [`docs/DESIGN.md` §8](docs/DESIGN.md)。
+完整目录见 [`docs/DESIGN.md` §8](docs/DESIGN.md)，发布流程见 [`docs/RELEASE.md`](docs/RELEASE.md)。
 
 ## 致谢
 

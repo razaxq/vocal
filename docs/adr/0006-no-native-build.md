@@ -62,7 +62,7 @@ npm error gyp ERR! find VS including the "Desktop development with C++" workload
 - 历史写失败不抛出，只标脏 —— 绝不能因为记日志失败打断语音输入
 
 `HistoryService` 不再 import electron（路径由主进程传入），因此可以直接跑单元测试：
-`npm run test:history`，7 个用例。
+`npm test`，7 个用例。
 
 ## 连带改动
 

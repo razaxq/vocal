@@ -24,16 +24,12 @@
     "pack": "npm run build && electron-builder --win --dir",
     "dist": "npm run build && electron-builder --win",
     "release": "npm run build && electron-builder --win --publish always",
-    "test:cleanup": "node --experimental-strip-types --test src/shared/textCleanup.test.ts",
-    "test:history": "node --experimental-strip-types --test src/main/services/history/index.test.ts",
     "test": "node --experimental-strip-types --test \"src/**/*.test.ts\"",
     "m0:native": "electron scripts/m0/index.cjs --check=native",
     "m0:focus": "electron scripts/m0/index.cjs --check=focus",
     "m0:inject": "electron scripts/m0/index.cjs --check=inject",
     "m0:roundtrip": "electron scripts/m0/index.cjs --check=roundtrip",
-    "m1:asr": "electron scripts/m0/asr.cjs",
-    "test:gate": "node --experimental-strip-types --test src/shared/audioGate.test.ts",
-    "test:segmenter": "node --experimental-strip-types --test src/main/services/asr/silenceSegmenter.test.ts"
+    "m1:asr": "electron scripts/m0/asr.cjs"
   },
   "dependencies": {
     "electron-store": "^11.0.2",
