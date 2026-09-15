@@ -91,7 +91,13 @@ export function ModelGroup({ slot, title, hint, cfg, patch, status, progress, fi
 
   return (
     <Section title={title} hint={hint}>
-      <div className="divide-y divide-[var(--border)] border-y border-[var(--border)]">
+      {/*
+        行与行之间靠间距分开，不用横线。
+        之前是「上下包边 + divide-y」，选中行的绿色底就被那两条直线切成方角 ——
+        圆角的高亮块卡在两条直线中间，怎么看都像没做完。
+        列表本身已经在一个有标题的小节里，不需要再画线来说明「这几行是一组」。
+      */}
+      <div className="space-y-1">
         {!fixed && (
           <PickRow
             active={current === MODEL_NONE}
@@ -137,9 +143,9 @@ function PickRow({ active, disabled, name, sub, onSelect, right, below }: {
       onKeyDown={(e) => {
         if (!disabled && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onSelect() }
       }}
-      className={`px-2 py-2.5 transition-colors ${
+      className={`rounded-lg px-2.5 py-2.5 transition-colors ${
         disabled ? 'cursor-not-allowed opacity-45' : 'cursor-pointer hover:bg-[var(--surface-hover)]'
-      } ${active ? 'bg-[var(--accent-soft)]' : ''}`}
+      } ${active ? 'bg-[var(--accent-soft)] ring-1 ring-inset ring-[var(--accent-ring)]' : ''}`}
     >
       <div className="flex items-center gap-2.5">
         <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border

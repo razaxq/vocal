@@ -33,16 +33,25 @@ zip 里绝不会有。程序据此判断自己是哪一种（见 `main/index.ts`
 
 ## 发一个版本
 
-```bash
-# 1. 改版本号
-npm version patch          # 或 minor / major，会自动 commit + 打 tag
+```powershell
+# 1. 改版本号 —— 会自动改 package.json、提交、打一个 v0.1.1 的 tag
+npm version patch          # 或 minor / major
 
-# 2. 推上去
-git push && git push --tags
+# 2. 把提交和 tag 一起推上去
+git push --follow-tags
 ```
+
+`git push` 默认**不推 tag**，而 release 流水线是被 tag 触发的。
+只 `git push` 的话 CI 会跑、Release 不会有；只 `git push --tags` 的话版本号
+留在本地没同步上去。`--follow-tags` 两件事一起做，是这里唯一正确的写法。
 
 GitHub Actions（`.github/workflows/release.yml`）会在 Windows runner 上
 `npm ci` → 类型检查 → 测试 → 打包 → 上传到对应的 Release。
+整个过程 10 分钟上下，大头是下载 Electron 和压包。
+
+**Release 页面空的？** 先看 Actions 里 `release` 这个 workflow 有没有跑过。
+它只在 `v*` 的 tag 被推上来时触发 —— 平时往 main 推代码只会跑 `ci`，
+不会产出任何文件。
 
 产物里有个 `latest.yml`，那是 electron-updater 查版本用的清单。
 **不要手动编辑 Release 的附件列表**，删了它自动更新就废了。
