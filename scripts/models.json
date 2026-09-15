@@ -85,7 +85,7 @@
       "id": "sensevoice-2024",
       "name": "SenseVoice 2024-07-17",
       "langs": "中文 / 英文 / 日文 / 韩文 / 粤语",
-      "note": "默认。自带标点和数字格式化（「二零二六年」→「2026 年」）。",
+      "note": "自带标点和数字格式化（「二零二六年」→「2026 年」）。",
       "kind": "offline-sense-voice",
       "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
       "dir": "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17",

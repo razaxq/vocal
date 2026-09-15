@@ -1,5 +1,5 @@
 /** 设置 / 历史窗口。普通窗口，可以抢焦点。 */
-import { BrowserWindow, app, nativeTheme } from 'electron'
+import { BrowserWindow, app, nativeTheme, shell } from 'electron'
 import { join } from 'node:path'
 import { appIconPath, setWindowAppDetails } from './appIdentity'
 
@@ -37,6 +37,12 @@ export function openSettingsWindow(tab?: string): BrowserWindow {
   })
 
   setWindowAppDetails(win)
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (url === 'https://blog.dtft.net/about/') {
+      void shell.openExternal(url).catch((e) => console.error('打开开发者主页失败', e))
+    }
+    return { action: 'deny' }
+  })
 
   win.on('ready-to-show', () => {
     win?.show()

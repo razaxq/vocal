@@ -25,10 +25,11 @@ import { AboutTab } from './about'
 import { applyTheme, watchSystemTheme, type ThemeMode } from '@renderer/shared/theme'
 import { CleanupPreview } from './CleanupPreview'
 import { useUpdateStatus } from './updateStatus'
+import { GeneralTab } from './general'
 
-type Tab = 'hotkey' | 'asr' | 'cleanup' | 'polish' | 'inject' | 'appearance' | 'history' | 'about'
+type Tab = 'hotkey' | 'asr' | 'cleanup' | 'polish' | 'inject' | 'general' | 'appearance' | 'history' | 'about'
 
-/** 前五项是流水线，后三项是别的。分界线画在 PIPELINE 和 OTHER 之间。 */
+/** 前五项是流水线，其余是应用设置。 */
 const PIPELINE: Array<[Tab, string]> = [
   ['hotkey', '触发'],
   ['asr', '识别'],
@@ -37,6 +38,7 @@ const PIPELINE: Array<[Tab, string]> = [
   ['inject', '上屏']
 ]
 const OTHER: Array<[Tab, string]> = [
+  ['general', '通用'],
   ['appearance', '外观'],
   ['history', '历史'],
   ['about', '关于']
@@ -47,7 +49,13 @@ export function Settings(): React.ReactElement {
   const [tab, setTab] = useState<Tab>('hotkey')
   const updateStatus = useUpdateStatus()
 
-  useEffect(() => { void window.vocal.getConfig().then(setCfg) }, [])
+  useEffect(() => {
+    const refresh = (): void => { void window.vocal.getConfig().then(setCfg) }
+    refresh()
+    // 从 Windows 启动应用设置切回来时，刷新实际的开机自启状态。
+    window.addEventListener('focus', refresh)
+    return () => window.removeEventListener('focus', refresh)
+  }, [])
 
   // 主题：配置变了立刻应用；跟随系统时还要监听系统切换
   const theme = (cfg?.ui.theme ?? 'system') as ThemeMode
@@ -109,9 +117,10 @@ export function Settings(): React.ReactElement {
           {tab === 'cleanup' && <CleanupTab cfg={cfg} patch={patch} />}
           {tab === 'polish' && <PolishTab cfg={cfg} patch={patch} />}
           {tab === 'inject' && <InjectionTab cfg={cfg} patch={patch} />}
+          {tab === 'general' && <GeneralTab cfg={cfg} patch={patch} />}
           {tab === 'appearance' && <AppearanceTab cfg={cfg} patch={patch} />}
           {tab === 'history' && <HistoryTab />}
-          {tab === 'about' && <AboutTab cfg={cfg} patch={patch} updateStatus={updateStatus} />}
+          {tab === 'about' && <AboutTab updateStatus={updateStatus} />}
         </main>
       </div>
     </div>

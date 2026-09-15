@@ -7,8 +7,8 @@
  * 流式识别、定稿识别各占多少。关掉流式模型能省多少，这里一眼看得见。
  */
 import { useEffect, useState } from 'react'
-import type { AppConfig, AppStats, UpdateStatus } from '@shared/ipc'
-import { Page, Section, Row, Button, Note, Toggle } from './ui'
+import type { AppStats, UpdateStatus } from '@shared/ipc'
+import { Page, Section, Row, Button, Note } from './ui'
 import { useModelStatus, mb } from './models'
 
 function fmtMB(v: number): string {
@@ -24,9 +24,7 @@ function fmtUptime(ms: number): string {
   return `${s} 秒`
 }
 
-export function AboutTab({ cfg, patch, updateStatus }: {
-  cfg: AppConfig
-  patch: (p: Partial<AppConfig>) => Promise<void>
+export function AboutTab({ updateStatus }: {
   updateStatus: UpdateStatus | null
 }): React.ReactElement {
   const { status } = useModelStatus()
@@ -44,7 +42,13 @@ export function AboutTab({ cfg, patch, updateStatus }: {
     : 0
 
   return (
-    <Page title="关于" desc="Vocal —— Windows 桌面语音输入，识别全部在本机完成。">
+    <Page title="关于" desc={<>
+      Vocal 是 Windows 桌面语音输入工具，语音识别与历史存储均在本机完成，仅启用 AI 整理时会将文字发送到你配置的服务。
+      <span className="mt-1 block">
+        由 <a href="https://blog.dtft.net/about/" target="_blank" rel="noopener noreferrer"
+          className="text-[var(--accent)] underline underline-offset-2">Ramos</a> 开发
+      </span>
+    </>}>
       <Section title="资源占用">
         {stats ? (
           <>
@@ -120,7 +124,7 @@ export function AboutTab({ cfg, patch, updateStatus }: {
         </Row>
       </Section>
 
-      <UpdateSection cfg={cfg} patch={patch} st={updateStatus} />
+      <UpdateSection st={updateStatus} />
 
       <Section title="版本">
         <Row label="Vocal">
@@ -138,19 +142,12 @@ export function AboutTab({ cfg, patch, updateStatus }: {
         </Row>
       </Section>
 
-      <Section title="隐私">
-        <p className="text-[12px] leading-relaxed text-[var(--fg-muted)]">
-          语音、文字、历史都只存在这台电脑上。唯一联网的是「整理」，默认关闭，关着就完全离线。
-        </p>
-      </Section>
     </Page>
   )
 }
 
 /** 检查、下载、安装用同一个入口，发行方式不出现在操作说明里。 */
-function UpdateSection({ cfg, patch, st }: {
-  cfg: AppConfig
-  patch: (p: Partial<AppConfig>) => Promise<void>
+function UpdateSection({ st }: {
   st: UpdateStatus | null
 }): React.ReactElement {
   const [actionError, setActionError] = useState('')
@@ -180,12 +177,6 @@ function UpdateSection({ cfg, patch, st }: {
 
   return (
     <Section title="更新">
-        <Row label="启动时检查更新">
-          <Toggle
-            checked={cfg.update.auto}
-            onChange={(b) => patch({ update: { ...cfg.update, auto: b } })}
-          />
-        </Row>
       <Row label="版本更新">
         <div className="flex items-center gap-2">
           <Button

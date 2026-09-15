@@ -24,6 +24,8 @@ import {
 import { openSettingsWindow } from './windows/settingsWindow'
 import { UpdaterService } from './services/updater'
 import { APP_ID } from './windows/appIdentity'
+import { StartupService, STARTUP_ARG } from './services/startup'
+import { configSchema } from '@shared/config'
 
 // 必须在创建任何窗口之前设置，让 Windows 使用 Vocal 的任务栏身份。
 app.setAppUserModelId(APP_ID)
@@ -86,6 +88,7 @@ let hotkeys: HotkeyService
 let session: SessionController
 let downloader: ModelDownloader
 let updater: UpdaterService
+let startup: StartupService
 let modelMaintenance = false
 
 /**
@@ -128,6 +131,8 @@ function cleanupConfigOf(cfg: AppConfig): CleanupConfig {
 
 async function bootstrap(): Promise<void> {
   config = new ConfigService()
+  startup = new StartupService(app, app.getPath('exe'), app.isPackaged && process.platform === 'win32', APP_ID)
+  syncStartupConfig()
   history = new HistoryService(join(app.getPath('userData'), 'history.jsonl'))
 
   const getConfig = (): AppConfig => config.get()
@@ -208,7 +213,7 @@ async function bootstrap(): Promise<void> {
   } else {
     // 没模型：不弹系统对话框，直接把设置窗口开到模型页让用户点下载。
     // 弹框只能告诉你「缺了」，然后你还得自己去跑命令 —— 那不叫引导。
-    openSettingsWindow('asr')
+    if (!process.argv.includes(STARTUP_ARG)) openSettingsWindow('asr')
   }
 
   hotkeys = new HotkeyService({
@@ -245,10 +250,22 @@ async function bootstrap(): Promise<void> {
   createTray()
 }
 
+function syncStartupConfig(): AppConfig {
+  const current = config.get()
+  const enabled = startup.isEnabled()
+  return current.ui.launchAtLogin === enabled ? current
+    : config.set({ ui: { ...current.ui, launchAtLogin: enabled } })
+}
+
 function registerIpc(injector: TextInjector): void {
-  ipcMain.handle(CH.configGet, () => config.get())
+  ipcMain.handle(CH.configGet, () => syncStartupConfig())
   ipcMain.handle(CH.configSet, (_e, patch: Partial<AppConfig>) => {
     const before = config.get()
+    const candidate = configSchema.parse({ ...before, ...patch })
+    if (before.ui.launchAtLogin !== candidate.ui.launchAtLogin) {
+      // 系统确认成功后才保存，失败时界面保留原来的开关状态。
+      startup.setEnabled(candidate.ui.launchAtLogin)
+    }
     const next = config.set(patch)
 
     if (JSON.stringify(before.hotkey) !== JSON.stringify(next.hotkey)) {

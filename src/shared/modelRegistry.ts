@@ -54,8 +54,8 @@ export function resolveModel(slot: ModelSlot, id: string): ModelEntry {
 }
 
 export const DEFAULT_MODEL_IDS = {
-  streaming: 'paraformer-zh-en',
-  offline: 'sensevoice-2024',
+  streaming: 'zipformer-zh',
+  offline: 'zipformer-zh-en',
   punct: 'ct-transformer',
   vad: 'silero'
 } as const

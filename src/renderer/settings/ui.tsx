@@ -12,7 +12,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 /* ---------------- 容器 ---------------- */
 
 export function Page({ title, desc, children }: {
-  title: string; desc?: string; children: ReactNode
+  title: string; desc?: ReactNode; children: ReactNode
 }): React.ReactElement {
   return (
     <div className="mx-auto max-w-3xl pb-16">
@@ -235,8 +235,9 @@ export function Num({ value, onChange, min, max, suffix }: {
   )
 }
 
-export function Toggle({ checked, onChange, label }: {
+export function Toggle({ checked, onChange, label, disabled = false, ariaLabel }: {
   checked: boolean; onChange: (b: boolean) => void; label?: string
+  disabled?: boolean; ariaLabel?: string
 }): React.ReactElement {
   return (
     <label className="inline-flex cursor-pointer items-center gap-2.5">
@@ -244,8 +245,10 @@ export function Toggle({ checked, onChange, label }: {
         type="button"
         role="switch"
         aria-checked={checked}
+        aria-label={ariaLabel ?? label}
+        disabled={disabled}
         onClick={() => onChange(!checked)}
-        className={`relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors ${
+        className={`relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors disabled:cursor-wait disabled:opacity-50 ${
           checked ? 'bg-[var(--accent)]' : 'bg-[var(--border-strong)]'
         }`}
       >

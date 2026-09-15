@@ -33,8 +33,8 @@ const modelArg = args.indexOf('--model')
 const SLOTS = ['streaming', 'offline', 'punct', 'vad']
 /** 不指定就下这套 —— 和 src/shared/modelRegistry.ts 的 DEFAULT_MODEL_IDS 对应 */
 const DEFAULTS = {
-  streaming: 'paraformer-zh-en',
-  offline: 'sensevoice-2024',
+  streaming: 'zipformer-zh',
+  offline: 'zipformer-zh-en',
   punct: 'ct-transformer',
   vad: 'silero'
 }
