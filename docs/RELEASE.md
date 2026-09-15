@@ -22,10 +22,10 @@
 
 | 产物 | 给谁 | 数据在哪 | 自动更新 |
 |---|---|---|---|
-| **`Vocal-x.y.z-win.zip`（推荐）** | 解压即用，方便迁移或随身携带 | exe 旁边的 `data/` | ✅ |
-| `Vocal-Setup-x.y.z.exe`（NSIS） | 希望通过安装向导安装 | `%APPDATA%\Vocal` | ✅ |
+| **`Vocal-Setup-x.y.z.exe`（NSIS，推荐）** | 大多数用户，按向导安装 | `%APPDATA%\Vocal` | ✅ |
+| `Vocal-x.y.z-win.zip` | 解压即用，方便迁移或随身携带 | exe 旁边的 `data/` | ✅ |
 
-Release 说明顶部将「便携版（推荐）」下载链接放在第一位，「安装版」放在第二位。
+Release 说明顶部将「安装版（推荐）」下载链接放在第一位，「便携版」放在第二位。
 
 启动只检查版本，「关于」旁显示红点；用户点击后下载并重启更新。
 安装版使用 NSIS；便携版下载同一 Release 的 `Vocal-*-win.zip`，校验 GitHub 资产的
