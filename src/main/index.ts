@@ -18,7 +18,9 @@ import { checkModels, resolveModelPaths, modelsRoot, modelInstallInfo } from './
 import { modelsOf, deriveProfile, MODEL_NONE } from '@shared/modelRegistry'
 import { ModelDownloader } from './services/asr/downloader'
 import { SessionController } from './services/session'
-import { createPanelWindow, positionPanel, EXIT_MS, DWELL_MS } from './windows/panelWindow'
+import {
+  createPanelWindow, positionPanel, EXIT_MS, DWELL_MS, REVEAL_MS
+} from './windows/panelWindow'
 import { openSettingsWindow } from './windows/settingsWindow'
 import { UpdaterService } from './services/updater'
 
@@ -81,10 +83,14 @@ let session: SessionController
 let downloader: ModelDownloader
 let updater: UpdaterService
 
-/** 排队中的面板退场定时器。新一次会话开始时要全部取消，见 showPanel。 */
-const hideTimers: NodeJS.Timeout[] = []
-function cancelPanelHide(): void {
-  while (hideTimers.length) clearTimeout(hideTimers.pop())
+/**
+ * 面板的显隐都是分步的（先压暗再显示、先放动画再藏），中间挂着定时器。
+ * 下一次显隐开始前必须把上一轮没跑完的全部取消 —— 否则旧的那一步会在
+ * 新会话开始之后才醒来，把刚显示出来的面板又藏一次。
+ */
+const panelTimers: NodeJS.Timeout[] = []
+function cancelPanelTimers(): void {
+  while (panelTimers.length) clearTimeout(panelTimers.pop())
 }
 
 function toPanel(channel: string, payload?: unknown): void {
@@ -164,19 +170,26 @@ async function bootstrap(): Promise<void> {
       // 上一次的退场还在排队就取消掉。
       // 不取消的话，紧接着再按一次热键（防抖只有 300ms，而退场链路要
       // DWELL + EXIT = 650ms），旧的定时器会在新会话开始后才醒来，
-      // 把刚显示出来的面板又藏一次 —— 看起来就是「闪了两下」。
-      cancelPanelHide()
+      // 把刚显示出来的面板又藏一次。
+      cancelPanelTimers()
       positionPanel(panel, getConfig().ui.followCaret, panelCompact(getConfig()))
+
+      // 压到全透明再 show：show() 的第一帧是合成器里的旧画面，
+      // 渲染进程管不到它，只能让它显示在一个透明的窗口上。见 REVEAL_MS。
+      panel.setOpacity(0)
       panel.showInactive()   // 关键：显示但不激活，焦点留在目标应用
       toPanel(CH.panelVisible, true)
+      panelTimers.push(setTimeout(() => {
+        if (panel && !panel.isDestroyed()) panel.setOpacity(1)
+      }, REVEAL_MS))
     },
     hidePanel: () => {
       // 三步：停留让用户看完 → 通知面板放退场动画 → 动画放完再 hide。
       // 直接 hide 的话进场有动画、退场没有，比两边都没有更别扭。
-      cancelPanelHide()
-      hideTimers.push(setTimeout(() => {
+      cancelPanelTimers()
+      panelTimers.push(setTimeout(() => {
         toPanel(CH.panelVisible, false)
-        hideTimers.push(setTimeout(() => {
+        panelTimers.push(setTimeout(() => {
           if (panel && !panel.isDestroyed()) panel.hide()
         }, EXIT_MS))
       }, DWELL_MS))

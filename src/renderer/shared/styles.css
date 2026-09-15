@@ -215,14 +215,18 @@
  * win.hide()，啪一下没了 —— 一半有动画一半没有，比两边都没有更难受。
  * 现在退场由主进程先发信号、渲染进程放完动画、主进程再 hide，
  * 两个时长写在一起（见 panelWindow.ts 的 EXIT_MS）。
+ *
+ * 只动 opacity 和位移，**不做缩放**：面板是个半透明的置顶窗口，
+ * 缩放会让合成器每一帧重新光栅化整块内容，动画期间肉眼可见地抖。
+ * 那点缩放手感换不来这个代价。
  */
 @keyframes panel-in {
-  from { opacity: 0; transform: translateY(8px) scale(.96); }
+  from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: none; }
 }
 @keyframes panel-out {
   from { opacity: 1; transform: none; }
-  to   { opacity: 0; transform: translateY(6px) scale(.97); }
+  to   { opacity: 0; transform: translateY(6px); }
 }
 .panel-in  { animation: panel-in 170ms cubic-bezier(.2,.8,.3,1) both; }
 .panel-out { animation: panel-out 140ms cubic-bezier(.4,0,1,1) both; }

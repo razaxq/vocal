@@ -26,6 +26,20 @@ const SIZE = {
 /** 退场动画时长，和 styles.css 的 .panel-out 必须一致。 */
 export const EXIT_MS = 150
 
+/**
+ * 从 show() 到把窗口不透明度还原之间留的两帧。
+ *
+ * 为什么需要：窗口在 hide 状态下合成器不会推新帧，show() 的那一刻
+ * DWM 会先把交换链里**上一次留下的那一帧**present 出来，然后才轮到
+ * 新内容。用户看到的就是「刚按下热键，面板先闪一下旧画面」。
+ * CSS 动画救不了它 —— 那一帧根本没经过渲染进程。
+ *
+ * 所以改成：先把窗口整体不透明度压到 0 再 show（那帧旧画面照样被 present，
+ * 但它是透明的，看不见），两帧之后再还原，此时 CSS 的进场动画已经在跑了。
+ * 窗口级不透明度由 DWM 处理，和渲染进程画到哪一步无关，这是它可靠的原因。
+ */
+export const REVEAL_MS = 32
+
 /** 结束后让用户多看一眼最终文本的停留时间。 */
 export const DWELL_MS = 500
 
@@ -41,6 +55,9 @@ export function createPanelWindow(compact: boolean): BrowserWindow {
     show: false,
     frame: false,
     transparent: true,
+    // 透明窗口不写这个的话，Windows 下第一帧有机会是白的。
+    // 全 0 的 alpha 才是「真的什么都不画」。
+    backgroundColor: '#00000000',
     resizable: false,
     movable: true,
     minimizable: false,
@@ -52,7 +69,10 @@ export function createPanelWindow(compact: boolean): BrowserWindow {
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
       sandbox: false,
-      contextIsolation: true
+      contextIsolation: true,
+      // 这个渲染进程一直持有麦克风、还要跑进出动画，
+      // 让 Chromium 因为「窗口不可见」去降频它没有好处
+      backgroundThrottling: false
     }
   })
 

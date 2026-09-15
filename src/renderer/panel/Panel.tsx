@@ -115,8 +115,11 @@ export function Panel(): React.ReactElement {
   const working = state === 'finalizing' || state === 'consolidating' || state === 'injecting'
   const hasText = Boolean(committed || live)
 
+  // 没有 backdrop-blur：底色本来就有 94% 不透明度，透过去的那 6% 糊不糊
+  // 根本看不出来，而它是这个置顶透明窗口里最贵的一件事 ——
+  // 每一帧都要采样一次背后的整块屏幕，进出动画期间正好抖给你看。
   const shell = 'flex h-full w-full items-center rounded-2xl shadow-2xl ' +
-                'ring-1 ring-black/10 backdrop-blur-xl ' +
+                'ring-1 ring-black/10 ' +
                 (visible === null ? 'opacity-0' : visible ? 'panel-in' : 'panel-out')
   const bg = { background: 'color-mix(in srgb, var(--surface) 94%, transparent)' }
 
