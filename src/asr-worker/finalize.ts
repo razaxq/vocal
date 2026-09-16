@@ -14,6 +14,7 @@ import sherpa, { type OfflineRecognizer, type OfflinePunctuation } from 'sherpa-
 import type { FinalizeCommand, FinalizeEvent, ModelPaths, CleanupConfig } from '@shared/types'
 import { cleanupSpeech } from '@shared/textCleanup'
 import { detectVoice, isFinalSane } from '@shared/audioGate'
+import { offlineHotwords, type RecognitionHotword } from '@shared/hotwordCatalog'
 
 const port = process.parentPort
 const send = (e: FinalizeEvent): void => port.postMessage(e)
@@ -22,7 +23,7 @@ let recognizer: OfflineRecognizer | null = null
 let punct: OfflinePunctuation | null = null
 let cleanup: CleanupConfig = { level: 'standard', protect: [], extraFillers: [] }
 let models: ModelPaths | null = null
-let hotwords: string[] = []
+let hotwords: RecognitionHotword[] = []
 
 /**
  * 热词加权强度。和 stream.ts 同一个口径，理由见那边的注释。
@@ -39,8 +40,7 @@ const HOTWORDS_SCORE = 2.5
  * 可以直接写自然词，不用像流式那样自己按词表编码。
  */
 function hotwordsArg(): string | undefined {
-  const cleaned = hotwords.map((w) => w.trim()).filter(Boolean)
-  return cleaned.length ? cleaned.join('/') : undefined
+  return offlineHotwords(hotwords)
 }
 
 /** 标点 + 规则清洗，两个档位共用的收尾。 */
@@ -56,7 +56,7 @@ function polish(text: string): { text: string; removed: number } {
   return { text: cleaned.text, removed: cleaned.removed }
 }
 
-function init(m: ModelPaths, c: CleanupConfig, mode: 'full' | 'punct-only', hw: string[]): void {
+function init(m: ModelPaths, c: CleanupConfig, mode: 'full' | 'punct-only', hw: RecognitionHotword[]): void {
   cleanup = c
   models = m
   hotwords = hw
@@ -156,9 +156,12 @@ port.on('message', (event: { data: FinalizeCommand }) => {
         break
 
       case 'hotwords:update':
-        // 离线侧热词是每次 createStream 现传的，不用重建 recognizer ——
-        // 改个热词要等两秒重新加载模型，那体验说不过去
+        // 空表与非空表切换时必须重建，以切换 greedy / beam 解码。
+        const wasEnabled = hotwords.length > 0
         hotwords = cmd.hotwords
+        if (recognizer && models?.offline.kind === 'offline-transducer' && wasEnabled !== (hotwords.length > 0)) {
+          buildRecognizer(models)
+        }
         break
 
       case 'punctuate': {

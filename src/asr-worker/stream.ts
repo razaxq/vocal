@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os'
 import sherpa, { type OnlineRecognizer, type OnlineStream } from 'sherpa-onnx-node'
 import type { StreamCommand, StreamEvent, ModelPaths } from '@shared/types'
 import { encodeHotwords, parseTokens } from '@shared/hotwordEncode'
+import type { RecognitionHotword } from '@shared/hotwordCatalog'
 
 const port = process.parentPort
 const send = (e: StreamEvent): void => port.postMessage(e)
@@ -41,8 +42,8 @@ let lastPartial = ''
  * 「Encode hotwords failed, skipping」就当没有热词继续跑 ——
  * 应用层完全察觉不到。所以先按词表编码一遍，编不出来的回报给上层。
  */
-function writeHotwords(words: string[], tokensPath: string): string | undefined {
-  const cleaned = words.map((w) => w.trim()).filter(Boolean)
+function writeHotwords(words: RecognitionHotword[], tokensPath: string): string | undefined {
+  const cleaned = words.filter((w) => w.text.trim())
   if (cleaned.length === 0) return undefined
 
   let encoded: string[]
@@ -50,10 +51,11 @@ function writeHotwords(words: string[], tokensPath: string): string | undefined 
     const vocab = parseTokens(readFileSync(tokensPath, 'utf8'))
     const r = encodeHotwords(cleaned, vocab)
     encoded = r.lines
-    if (r.dropped.length) {
+    const personalDropped = r.dropped.filter(text => cleaned.some(w => w.text === text && w.score > 1.5))
+    if (personalDropped.length) {
       send({
         type: 'error',
-        message: `这些热词当前模型认不了，已忽略：${r.dropped.join('、')}`,
+        message: `这些热词当前模型认不了，已忽略：${personalDropped.join('、')}`,
         fatal: false
       })
     }
@@ -68,7 +70,7 @@ function writeHotwords(words: string[], tokensPath: string): string | undefined 
   return file
 }
 
-function build(m: ModelPaths, hotwords: string[]): OnlineRecognizer {
+function build(m: ModelPaths, hotwords: RecognitionHotword[]): OnlineRecognizer {
   const st = m.streaming
 
   // 两类模型的配置形状不同：

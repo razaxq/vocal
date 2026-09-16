@@ -4,11 +4,15 @@ import type {
   InjectionStrategy, InjectionResult, InjectMode, Segment
 } from './types'
 import type { CleanupLevel } from './textCleanup'
+import type { HotwordCatalog } from './hotwordCatalog'
 
 export const CH = {
   // renderer → main（invoke）
   configGet: 'config:get',
   configSet: 'config:set',
+  hotwordCatalogGet: 'hotwords:catalog:get',
+  hotwordCatalogCheck: 'hotwords:catalog:check',
+  hotwordCatalogStatus: 'hotwords:catalog:status',
   historyList: 'history:list',
   historyDelete: 'history:delete',
   historyStats: 'history:stats',
@@ -102,6 +106,7 @@ export interface AppConfig {
     autoGainControl: boolean
   }
   hotwords: string[]
+  networkHotwords: { enabled: boolean; autoUpdate: boolean }
   ui: {
     theme: 'system' | 'light' | 'dark'
     followCaret: boolean
@@ -119,6 +124,12 @@ export interface ModelProgress {
   phase: 'queued' | 'downloading' | 'extracting' | 'verifying' | 'done' | 'error' | 'cancelled'
   received: number
   total: number
+  message?: string
+}
+
+export interface HotwordCatalogStatus extends HotwordCatalog {
+  state: 'idle' | 'checking' | 'latest' | 'updated' | 'error'
+  checkedAt?: number
   message?: string
 }
 
@@ -196,6 +207,9 @@ export interface PanelPartial {
 export interface VocalBridge {
   getConfig(): Promise<AppConfig>
   setConfig(patch: Partial<AppConfig>): Promise<AppConfig>
+  getHotwordCatalog(): Promise<HotwordCatalogStatus>
+  checkHotwordCatalog(): Promise<HotwordCatalogStatus>
+  onHotwordCatalog(cb: (status: HotwordCatalogStatus) => void): () => void
   listHistory(limit: number, offset: number): Promise<Transcript[]>
   deleteHistory(id: string): Promise<void>
   historyStats(): Promise<HistoryStats>

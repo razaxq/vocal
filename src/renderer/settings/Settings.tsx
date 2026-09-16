@@ -13,7 +13,7 @@
 import { useEffect, useState } from 'react'
 import type { AppConfig, HistoryStats } from '@shared/ipc'
 import type { Transcript } from '@shared/types'
-import { MODEL_NONE, findModel } from '@shared/modelRegistry'
+import { MODEL_NONE } from '@shared/modelRegistry'
 import {
   Page, Section, Row, Select, Input, Num, Toggle, Note, LineList, Textarea,
   WindowControls, AppMark
@@ -26,6 +26,7 @@ import { applyTheme, watchSystemTheme, type ThemeMode } from '@renderer/shared/t
 import { CleanupPreview } from './CleanupPreview'
 import { useUpdateStatus } from './updateStatus'
 import { GeneralTab } from './general'
+import { HotwordsSection } from './hotwords'
 
 type Tab = 'hotkey' | 'asr' | 'cleanup' | 'polish' | 'inject' | 'general' | 'appearance' | 'history' | 'about'
 
@@ -268,27 +269,7 @@ function AsrTab({ cfg, patch }: TabProps): React.ReactElement {
         cfg={cfg} patch={patch} status={status} progress={progress} fixed
       />
 
-      <Section title="热词" hint="填写常用人名、地名或术语">
-        <LineList
-          value={cfg.hotwords}
-          rows={7}
-          placeholder={'张晓明\n苏州工业园区\nVocal'}
-          onChange={(hotwords) => patch({ hotwords })}
-        />
-        <Note>
-          {(() => {
-            // 按注册表里的 kind 判断，不靠 id 的字符串前缀 ——
-            // 加个新模型改个名字就悄悄失准的判断不要写
-            const st = findModel('streaming', cfg.models.streaming)?.kind === 'online-zipformer'
-            const off = findModel('offline', cfg.models.offline)?.kind === 'offline-transducer'
-            if (st && off) return '当前模型均支持优先识别热词。'
-            if (st || off) {
-              return `当前仅${st ? '流式' : '定稿'}模型支持优先识别热词。`
-            }
-            return '当前模型不支持优先识别热词，可选择 Zipformer。'
-          })()}
-        </Note>
-      </Section>
+      <HotwordsSection cfg={cfg} patch={patch} />
     </Page>
   )
 }

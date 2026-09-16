@@ -16,6 +16,7 @@ import type {
 } from '@shared/types'
 import { SessionAudioBuffer } from './audioBuffer'
 import { SilenceSegmenter } from './silenceSegmenter'
+import type { RecognitionHotword } from '@shared/hotwordCatalog'
 
 export interface EngineEvents {
   /** 当前正在说的这段的实时文本 */
@@ -58,7 +59,7 @@ export class AsrEngine {
   constructor(
     private models: ModelPaths,
     private profile: AsrProfile,
-    private hotwords: string[],
+    private hotwords: RecognitionHotword[],
     private cleanup: CleanupConfig,
     private endpointSilenceMs: number,
     private idleUnloadMin: number,
@@ -272,7 +273,8 @@ export class AsrEngine {
   }
 
   /** 两个进程都要知道 —— transducer 模型在哪一层都吃热词。 */
-  updateHotwords(hotwords: string[]): void {
+  updateHotwords(hotwords: RecognitionHotword[]): void {
+    if (JSON.stringify(this.hotwords) === JSON.stringify(hotwords)) return
     this.hotwords = hotwords
     this.stream?.postMessage({ type: 'hotwords:update', hotwords } satisfies StreamCommand)
     this.finalize?.postMessage({ type: 'hotwords:update', hotwords } satisfies FinalizeCommand)

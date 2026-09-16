@@ -1,6 +1,6 @@
 /** 应用入口：装配所有服务，注册 IPC，管理生命周期。 */
 import {
-  app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, nativeTheme
+  app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, nativeTheme, net
 } from 'electron'
 import { join, dirname } from 'node:path'
 import { mkdirSync, accessSync, readdirSync, constants } from 'node:fs'
@@ -26,6 +26,9 @@ import { UpdaterService } from './services/updater'
 import { APP_ID } from './windows/appIdentity'
 import { StartupService, STARTUP_ARG } from './services/startup'
 import { configSchema } from '@shared/config'
+import { HotwordCatalogService } from './services/hotwordCatalog'
+import bundledHotwords from '@shared/network-hotwords.json'
+import { mergeHotwords } from '@shared/hotwordCatalog'
 
 // 必须在创建任何窗口之前设置，让 Windows 使用 Vocal 的任务栏身份。
 app.setAppUserModelId(APP_ID)
@@ -89,6 +92,8 @@ let session: SessionController
 let downloader: ModelDownloader
 let updater: UpdaterService
 let startup: StartupService
+let hotwordCatalog: HotwordCatalogService
+let hotwordsPending = false
 let modelMaintenance = false
 
 /**
@@ -124,13 +129,35 @@ function panelCompact(cfg: AppConfig): boolean {
 function cleanupConfigOf(cfg: AppConfig): CleanupConfig {
   return {
     level: cfg.cleanup.level,
-    protect: cfg.cleanup.protectHotwords ? cfg.hotwords : [],
+    protect: cfg.cleanup.protectHotwords ? recognitionHotwords(cfg).map(w => w.text) : [],
     extraFillers: cfg.cleanup.extraFillers
   }
 }
 
+function recognitionHotwords(cfg: AppConfig) {
+  return mergeHotwords(cfg.hotwords, cfg.networkHotwords.enabled ? hotwordCatalog.current.words : [])
+}
+
+function applyHotwords(): void {
+  if (session.current !== 'idle' && session.current !== 'error') {
+    hotwordsPending = true
+    return
+  }
+  hotwordsPending = false
+  const cfg = config.get()
+  asr.updateHotwords(recognitionHotwords(cfg))
+  asr.updateCleanup(cleanupConfigOf(cfg))
+}
+
 async function bootstrap(): Promise<void> {
   config = new ConfigService()
+  hotwordCatalog = new HotwordCatalogService(
+    join(app.getPath('userData'), 'network-hotwords.json'), bundledHotwords,
+    (url, init) => net.fetch(url, init),
+    () => { if (config.get().networkHotwords.enabled) applyHotwords() },
+    status => broadcast(CH.hotwordCatalogStatus, status)
+  )
+  await hotwordCatalog.load()
   startup = new StartupService(app, app.getPath('exe'), app.isPackaged && process.platform === 'win32', APP_ID)
   syncStartupConfig()
   history = new HistoryService(join(app.getPath('userData'), 'history.jsonl'))
@@ -152,7 +179,7 @@ async function bootstrap(): Promise<void> {
   asr = new AsrEngine(
     resolveModelPaths(cfg.models),
     deriveProfile(cfg.models),
-    cfg.hotwords,
+    recognitionHotwords(cfg),
     cleanupConfigOf(cfg),
     cfg.asr.endpointSilenceMs,
     cfg.asr.idleUnloadMin,
@@ -169,6 +196,7 @@ async function bootstrap(): Promise<void> {
       toPanel(CH.stateChanged, s)
       // 说话期间请求的重载攒到这里做，不打断正在进行的一次输入
       if (s === 'idle' && reloadPending) void reloadAsr(config.get())
+      else if ((s === 'idle' || s === 'error') && hotwordsPending) applyHotwords()
     },
     onPartial: (p) => toPanel(CH.partial, p),
     onSegment: (s) => toPanel(CH.segment, s),
@@ -247,6 +275,7 @@ async function bootstrap(): Promise<void> {
   updater.start(cfg.update.auto)
 
   registerIpc(injector)
+  hotwordCatalog.start(cfg.networkHotwords.enabled && cfg.networkHotwords.autoUpdate)
   createTray()
 }
 
@@ -271,14 +300,15 @@ function registerIpc(injector: TextInjector): void {
     if (JSON.stringify(before.hotkey) !== JSON.stringify(next.hotkey)) {
       try { hotkeys.apply(next.hotkey) } catch { /* 交给 UI 提示 */ }
     }
-    if (JSON.stringify(before.hotwords) !== JSON.stringify(next.hotwords)) {
-      asr.updateHotwords(next.hotwords)
-    }
     if (
       JSON.stringify(before.cleanup) !== JSON.stringify(next.cleanup) ||
-      JSON.stringify(before.hotwords) !== JSON.stringify(next.hotwords)
+      JSON.stringify(before.hotwords) !== JSON.stringify(next.hotwords) ||
+      before.networkHotwords.enabled !== next.networkHotwords.enabled
     ) {
-      asr.updateCleanup(cleanupConfigOf(next))
+      applyHotwords()
+    }
+    if (JSON.stringify(before.networkHotwords) !== JSON.stringify(next.networkHotwords)) {
+      hotwordCatalog.start(next.networkHotwords.enabled && next.networkHotwords.autoUpdate)
     }
     if (
       JSON.stringify(before.models) !== JSON.stringify(next.models) ||
@@ -383,6 +413,8 @@ function registerIpc(injector: TextInjector): void {
   ipcMain.handle(CH.updateCheck, () => updater.check())
   ipcMain.handle(CH.updateGet, () => updater.current)
   ipcMain.handle(CH.updateInstall, () => updater.installNow())
+  ipcMain.handle(CH.hotwordCatalogGet, () => hotwordCatalog.current)
+  ipcMain.handle(CH.hotwordCatalogCheck, () => hotwordCatalog.check())
 
   // 无边框窗口自己画标题栏，最小化和关闭得走 IPC
   ipcMain.handle(CH.winMinimize, (e) => BrowserWindow.fromWebContents(e.sender)?.minimize())
@@ -422,8 +454,9 @@ async function reloadAsr(cfg: AppConfig): Promise<void> {
       cfg.asr.endpointSilenceMs,
       cfg.asr.idleUnloadMin
     )
-    asr.updateHotwords(cfg.hotwords)
-    asr.updateCleanup(cleanupConfigOf(cfg))
+    hotwordsPending = false
+    asr.updateHotwords(recognitionHotwords(config.get()))
+    asr.updateCleanup(cleanupConfigOf(config.get()))
     broadcast(CH.asrStatus, { state: 'ready' })
   } catch (e) {
     broadcast(CH.asrStatus, {
@@ -477,6 +510,7 @@ app.whenReady().then(bootstrap)
 app.on('window-all-closed', () => { /* noop */ })
 
 app.on('will-quit', () => {
+  hotwordCatalog?.dispose()
   updater?.stop()
   downloader?.cancelAll()
   hotkeys?.dispose()

@@ -1,6 +1,7 @@
 /** 跨进程共享的领域类型。主进程 / 渲染进程 / 两个 ASR 工作进程都引用这里。 */
 
 import type { CleanupLevel } from './textCleanup'
+import type { RecognitionHotword } from './hotwordCatalog'
 
 /** 会话生命周期。UI 的每一种视觉状态都对应其中之一。 */
 export type SessionState =
@@ -165,13 +166,13 @@ export interface Transcript {
  * ============================================================ */
 
 export type StreamCommand =
-  | { type: 'init'; models: ModelPaths; hotwords: string[]; enabled: boolean
+  | { type: 'init'; models: ModelPaths; hotwords: RecognitionHotword[]; enabled: boolean
       /** 停顿多久算一句说完（毫秒） */
       endpointSilenceMs: number }
   | { type: 'session:start'; sessionId: string }
   | { type: 'audio'; sessionId: string; samples: Float32Array }
   | { type: 'session:stop'; sessionId: string }
-  | { type: 'hotwords:update'; hotwords: string[] }
+  | { type: 'hotwords:update'; hotwords: RecognitionHotword[] }
   | { type: 'shutdown' }
 
 export type StreamEvent =
@@ -203,7 +204,7 @@ export type FinalizeCommand =
        */
       mode: 'full' | 'punct-only'
       /** 只有 transducer 定稿模型吃得下；CTC 模型（SenseVoice）传了也没用 */
-      hotwords: string[]
+      hotwords: RecognitionHotword[]
     }
   | {
       type: 'finalize'
@@ -221,7 +222,7 @@ export type FinalizeCommand =
       text: string
     }
   | { type: 'cleanup:update'; cleanup: CleanupConfig }
-  | { type: 'hotwords:update'; hotwords: string[] }
+  | { type: 'hotwords:update'; hotwords: RecognitionHotword[] }
   | { type: 'shutdown' }
 
 export type FinalizeEvent =

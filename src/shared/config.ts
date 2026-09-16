@@ -131,6 +131,10 @@ export const configSchema = z.object({
   }).prefault({}),
 
   hotwords: z.array(z.string()).default([]),
+  networkHotwords: z.object({
+    enabled: z.boolean().default(true),
+    autoUpdate: z.boolean().default(true)
+  }).prefault({}),
 
   ui: z.object({
     theme: z.enum(['system', 'light', 'dark']).default('system'),

@@ -20,6 +20,8 @@
  * 不如让上层能告诉用户「这几个词这个模型认不了」。
  */
 
+import type { RecognitionHotword } from './hotwordCatalog'
+
 export interface EncodedHotwords {
   /** 每行一条，已编码成空格分隔的 token */
   lines: string[]
@@ -29,7 +31,7 @@ export interface EncodedHotwords {
 
 const WORD_START = '▁'
 
-export function encodeHotwords(phrases: string[], tokens: Iterable<string>): EncodedHotwords {
+export function encodeHotwords(phrases: Array<string | RecognitionHotword>, tokens: Iterable<string>): EncodedHotwords {
   const vocab = tokens instanceof Set ? tokens : new Set(tokens)
   const lines: string[] = []
   const dropped: string[] = []
@@ -42,10 +44,10 @@ export function encodeHotwords(phrases: string[], tokens: Iterable<string>): Enc
   }
 
   for (const raw of phrases) {
-    const phrase = raw.trim()
+    const phrase = (typeof raw === 'string' ? raw : raw.text).trim()
     if (!phrase) continue
     const out = encodeOne(phrase, vocab, maxLen)
-    if (out) lines.push(out)
+    if (out) lines.push(typeof raw === 'string' ? out : `${out} :${raw.score}`)
     else dropped.push(phrase)
   }
 

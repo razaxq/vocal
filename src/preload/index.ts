@@ -3,7 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { CH } from '../shared/ipc'
 import type {
   VocalBridge, AppConfig, PanelPartial, HistoryStats, ModelStatusInfo, ModelProgress,
-  AppStats, AsrStatus, UpdateStatus
+  AppStats, AsrStatus, UpdateStatus, HotwordCatalogStatus
 } from '../shared/ipc'
 import type { SessionState, Transcript, InjectionResult, Segment } from '../shared/types'
 
@@ -16,6 +16,9 @@ function sub<T>(channel: string, cb: (v: T) => void): () => void {
 const api: VocalBridge = {
   getConfig: () => ipcRenderer.invoke(CH.configGet) as Promise<AppConfig>,
   setConfig: (patch) => ipcRenderer.invoke(CH.configSet, patch) as Promise<AppConfig>,
+  getHotwordCatalog: () => ipcRenderer.invoke(CH.hotwordCatalogGet) as Promise<HotwordCatalogStatus>,
+  checkHotwordCatalog: () => ipcRenderer.invoke(CH.hotwordCatalogCheck) as Promise<HotwordCatalogStatus>,
+  onHotwordCatalog: (cb) => sub<HotwordCatalogStatus>(CH.hotwordCatalogStatus, cb),
   listHistory: (limit, offset) =>
     ipcRenderer.invoke(CH.historyList, limit, offset) as Promise<Transcript[]>,
   deleteHistory: (id) => ipcRenderer.invoke(CH.historyDelete, id) as Promise<void>,
