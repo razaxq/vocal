@@ -42,7 +42,7 @@
 | 更换快捷键，或改为按一下开始、再按一下结束 | 设置 → 快捷键 |
 | 更换麦克风、语言模型，或调整说话停顿时间 | 设置 → 识别 |
 | 提高人名、术语的识别机会 | 设置 → 识别 → 个人热词，每行填写一个 |
-| 识别常用网络词语 | 设置 → 识别 → 网络热词，默认开启 |
+| 使用雾凇基础词库 | 设置 → 识别 → 雾凇词库，默认开启 |
 | 减少「嗯」「呃」等口头语 | 设置 → 口语清理，可调整力度或关闭 |
 | 将口述文字整理为书面表达 | 设置 → AI 整理，需要配置并启用 AI 服务 |
 | 开机后自动运行 | 设置 → 通用 → 开机自启 |
@@ -54,7 +54,7 @@
 
 ## 软件更新
 
-「识别」页内置精选网络热词，可查看词语或关闭。词库默认每周检查更新，下载后可离线使用，不会覆盖个人热词。
+「识别」页使用[雾凇拼音基础词库](https://github.com/iDvel/rime-ice)，按词频选取 500 个词用于识别加权，可查看词语或关闭。词库每周同步上游并检查更新，下载后可离线使用，不会覆盖个人热词。
 热词功能需要支持它的模型，默认的两种 Zipformer 均支持。
 
 Vocal 默认在启动时检查新版本。发现更新后，「关于」旁会显示红点，进入该页点击「立即更新」即可。
@@ -104,7 +104,7 @@ Vocal 默认在启动时检查新版本。发现更新后，「关于」旁会�
 
 遇到问题或有功能建议，可以在 [Issues](https://github.com/razaxq/vocal/issues) 中反馈，附上软件版本、操作步骤和错误提示。
 
-由 [Ramos](https://blog.dtft.net/about/) 开发，采用 [MIT 许可](LICENSE)。
+由 [Ramos](https://blog.dtft.net/about/) 开发，应用代码采用 [MIT 许可](LICENSE)。随附雾凇词库及其派生数据采用 [GPL-3.0 许可](resources/dictionaries/rime-ice/LICENSE)。
 感谢 [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)、[ququ](https://github.com/yan5xu/ququ)
 和 [vocotype-cli](https://github.com/233stone/vocotype-cli) 提供的模型、工具与参考思路。
 

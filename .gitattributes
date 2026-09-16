@@ -11,3 +11,6 @@
 
 # 生成物：GitHub 语言统计里不计入，也不在 PR diff 里默认展开
 package-lock.json  linguist-generated=true -diff
+resources/dictionaries/rime-ice/base.dict.yaml linguist-vendored=true -text -diff
+resources/dictionaries/rime-ice/LICENSE -text
+resources/dictionaries/rime-ice/catalog.json linguist-generated=true

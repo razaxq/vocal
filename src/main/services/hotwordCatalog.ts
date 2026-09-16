@@ -3,7 +3,7 @@ import { dirname } from 'node:path'
 import { MAX_CATALOG_BYTES, parseCatalog, type HotwordCatalog } from '../../shared/hotwordCatalog.ts'
 import type { HotwordCatalogStatus } from '../../shared/ipc'
 
-export const CATALOG_URL = 'https://raw.githubusercontent.com/razaxq/vocal/main/src/shared/network-hotwords.json'
+export const CATALOG_URL = 'https://raw.githubusercontent.com/razaxq/vocal/main/resources/dictionaries/rime-ice/catalog.json'
 const WEEK = 7 * 24 * 60 * 60 * 1000
 
 export class HotwordCatalogService {

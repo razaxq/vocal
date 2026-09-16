@@ -3,7 +3,7 @@ import {
   app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, nativeTheme, net
 } from 'electron'
 import { join, dirname } from 'node:path'
-import { mkdirSync, accessSync, readdirSync, constants } from 'node:fs'
+import { mkdirSync, accessSync, readdirSync, readFileSync, constants } from 'node:fs'
 import { CH } from '@shared/ipc'
 import type { AppConfig } from '@shared/ipc'
 import type { SessionState, InjectionTarget, CleanupConfig } from '@shared/types'
@@ -27,8 +27,7 @@ import { APP_ID } from './windows/appIdentity'
 import { StartupService, STARTUP_ARG } from './services/startup'
 import { configSchema } from '@shared/config'
 import { HotwordCatalogService } from './services/hotwordCatalog'
-import bundledHotwords from '@shared/network-hotwords.json'
-import { mergeHotwords } from '@shared/hotwordCatalog'
+import { mergeHotwords, parseCatalog } from '@shared/hotwordCatalog'
 
 // 必须在创建任何窗口之前设置，让 Windows 使用 Vocal 的任务栏身份。
 app.setAppUserModelId(APP_ID)
@@ -151,6 +150,10 @@ function applyHotwords(): void {
 
 async function bootstrap(): Promise<void> {
   config = new ConfigService()
+  const bundledHotwords = parseCatalog(JSON.parse(readFileSync(join(
+    app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources'),
+    'dictionaries/rime-ice/catalog.json'
+  ), 'utf8')))
   hotwordCatalog = new HotwordCatalogService(
     join(app.getPath('userData'), 'network-hotwords.json'), bundledHotwords,
     (url, init) => net.fetch(url, init),

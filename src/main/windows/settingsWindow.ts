@@ -38,7 +38,7 @@ export function openSettingsWindow(tab?: string): BrowserWindow {
 
   setWindowAppDetails(win)
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (url === 'https://blog.dtft.net/about/') {
+    if (url === 'https://blog.dtft.net/about/' || url === 'https://github.com/iDvel/rime-ice') {
       void shell.openExternal(url).catch((e) => console.error('打开开发者主页失败', e))
     }
     return { action: 'deny' }

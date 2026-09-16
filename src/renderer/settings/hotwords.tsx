@@ -34,9 +34,9 @@ export function HotwordsSection({ cfg, patch }: {
   }
   return (
     <>
-      <Section title="网络热词" hint="精选常用新词，离线也能用">
-        <Row label="使用网络热词">
-          <Toggle checked={prefs.enabled} ariaLabel="使用网络热词" onChange={enabled => patch({ networkHotwords: { ...prefs, enabled } })} />
+      <Section title="雾凇词库" hint="按词频选取 500 个词，离线可用">
+        <Row label="使用基础词库">
+          <Toggle checked={prefs.enabled} ariaLabel="使用基础词库" onChange={enabled => patch({ networkHotwords: { ...prefs, enabled } })} />
         </Row>
         <Row label="自动更新词库" hint="每周检查一次">
           <Toggle checked={prefs.autoUpdate} disabled={!prefs.enabled} ariaLabel="自动更新词库"
@@ -51,8 +51,15 @@ export function HotwordsSection({ cfg, patch }: {
         {status?.state === 'latest' && !failed && <Note>词库已是最新</Note>}
         {status?.state === 'updated' && !failed && <Note>词库已更新，下次录音生效</Note>}
         {status && (
+          <p className="mt-2 text-[12px] text-[var(--fg-muted)]">
+            来源：<a className="underline underline-offset-2" href="https://github.com/iDvel/rime-ice" target="_blank" rel="noopener noreferrer">雾凇拼音</a>
+            {' · '}GPL-3.0
+          </p>
+        )}
+        {status && (
           <details className="mt-2 text-[12px] text-[var(--fg-muted)]">
             <summary className="cursor-pointer">查看词语</summary>
+            <p className="mt-2">已从 {status.source.eligibleCount.toLocaleString()} 个候选中选取，非完整词库。</p>
             <p className="mt-2 max-h-36 select-text overflow-y-auto leading-relaxed">{status.words.join('、')}</p>
           </details>
         )}

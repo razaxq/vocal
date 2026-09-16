@@ -17,6 +17,8 @@ files:
 # 模型不打进安装包：首次启动时按需下载到 userData，
 # 否则安装包会膨胀到 500MB+ 且无法增量更新模型。
 extraResources:
+  - from: resources/dictionaries/rime-ice
+    to: dictionaries/rime-ice
   - from: resources/tray.png
     to: tray.png
   - from: resources/icon.png
