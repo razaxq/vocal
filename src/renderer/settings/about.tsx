@@ -186,7 +186,7 @@ function UpdateSection({ st }: {
       case 'available': return `有新版本 ${st.latest ?? ''}`
       case 'downloading': return `正在下载 ${st.latest ?? ''}… ${st.percent ?? 0}%`
       case 'ready': return `${st.latest ?? ''} 已下载，可重启更新`
-      case 'installing': return '正在更新，完成后自动重启…'
+      case 'installing': return '正在安装更新…'
       case 'error': return ''
       default: return ''
     }
