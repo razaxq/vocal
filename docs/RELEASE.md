@@ -13,6 +13,8 @@
 
 4. **仓库必须是公开的**，否则 Release 附件要 token 才能下载，自动更新会失效。
 
+5. **开发者和链接**：`package.json` 的 `author` 为 Ramos，`homepage` 和开发者链接为 `https://blog.dtft.net/about/`；`repository` 保留 GitHub 仓库地址。`electron-builder.yml` 配置完整版权、Issues 反馈入口和 Releases 更新入口。开发者名称用于文件属性和安装信息，不等同于代码签名的已验证发布者。
+
 ## 出什么格式
 
 **不要用 RAR。** 它是私有格式，Windows 不能双击打开，用户还得先装 WinRAR ——
@@ -64,6 +66,8 @@ GitHub Actions（`.github/workflows/release.yml`）会在 Windows runner 上
 **不要手动编辑 Release 的附件列表**，删了它自动更新就废了。
 
 ## 本地打包（不发布）
+
+安装版与便携 ZIP 使用 `compression: maximum`；压缩更耗时，实际体积以产物为准。安装器默认展开安装详情（`build/installer.nsh`）。词库资源采用白名单，仅打包派生词表、GPL 许可、来源和上游声明；原始 `base.dict.yaml` 留在源码中。发布时保留 GitHub 的源码下载入口，供用户获取同版本的词库原始文件及生成代码。
 
 ```bash
 npm run dist          # 出 release/ 目录，不上传

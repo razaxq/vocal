@@ -104,7 +104,9 @@ Vocal 默认在启动时检查新版本。发现更新后，「关于」旁会�
 
 遇到问题或有功能建议，可以在 [Issues](https://github.com/razaxq/vocal/issues) 中反馈，附上软件版本、操作步骤和错误提示。
 
-由 [Ramos](https://blog.dtft.net/about/) 开发，应用代码采用 [MIT 许可](LICENSE)。随附雾凇词库及其派生数据采用 [GPL-3.0 许可](resources/dictionaries/rime-ice/LICENSE)。
+由 [Ramos](https://blog.dtft.net/about/) 开发。
+
+Vocal 自有代码采用 [MIT 许可](LICENSE)；随附雾凇词库数据采用 [GPL-3.0 许可](resources/dictionaries/rime-ice/LICENSE)，[来源与源码](resources/dictionaries/rime-ice/SOURCE.md) 可查阅。其他第三方组件遵循各自许可。
 感谢 [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)、[ququ](https://github.com/yan5xu/ququ)
 和 [vocotype-cli](https://github.com/233stone/vocotype-cli) 提供的模型、工具与参考思路。
 

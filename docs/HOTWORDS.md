@@ -2,7 +2,7 @@
 
 ## 来源
 
-基础词库来自 [iDvel/rime-ice](https://github.com/iDvel/rime-ice) 的 `cn_dicts/base.dict.yaml`，遵循上游 GPL-3.0 许可。原始词典、许可证全文和派生词表单独保存在 `resources/dictionaries/rime-ice/`，随软件分发。
+基础词库来自 [iDvel/rime-ice](https://github.com/iDvel/rime-ice) 的 `cn_dicts/base.dict.yaml`，遵循上游 GPL-3.0 许可。原始词典保留在源码仓库的 `resources/dictionaries/rime-ice/`，只供生成和校验使用。安装版和便携版仅携带运行时读取的 `catalog.json`、许可证全文、来源说明和上游声明，不携带原始词典。
 
 `catalog.json` 记录原始提交 SHA、文件 SHA-256、词库日期、数量及生成规则。完整读取基础词库，按词去重并保留多音读法；当前快照为 541,809 个词条，不包含雾凇的扩展、腾讯或英文词库。界面只预览前 100 词，完整数据交给定稿进程，避免大量词表反复传到界面。这不是最新热搜词表。
 

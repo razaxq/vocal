@@ -1,6 +1,7 @@
 appId: net.dtft.vocal
 productName: Vocal
-copyright: Copyright © 2026
+copyright: Copyright © 2026 Ramos
+compression: maximum
 
 # 原生依赖均带预编译 Node-API 二进制；重新编译会额外要求 Visual Studio。
 npmRebuild: false
@@ -19,6 +20,13 @@ files:
 extraResources:
   - from: resources/dictionaries/rime-ice
     to: dictionaries/rime-ice
+    filter:
+      - catalog.json
+      - LICENSE
+      - SOURCE.md
+      - UPSTREAM-NOTICES.txt
+  - from: LICENSE
+    to: licenses/Vocal-MIT.txt
   - from: resources/tray.png
     to: tray.png
   - from: resources/icon.png
@@ -48,6 +56,11 @@ win:
   requestedExecutionLevel: asInvoker
 
 nsis:
+  include: build/installer.nsh
+  uninstallUrlInfoAbout: https://blog.dtft.net/about/
+  uninstallUrlHelp: https://github.com/razaxq/vocal/issues
+  uninstallUrlUpdateInfo: https://github.com/razaxq/vocal/releases
+  uninstallUrlReadme: https://github.com/razaxq/vocal#readme
   oneClick: false
   # 装到 %LOCALAPPDATA%\Programs —— 不需要管理员权限，
   # 也就不会因为 UAC 提权把 SendInput 的注入目标限制住

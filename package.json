@@ -3,6 +3,11 @@
   "version": "0.1.7",
   "description": "Vocal — Windows 桌面语音输入：按住说话，流式上屏，像输入法一样用。",
   "private": true,
+  "author": {
+    "name": "Ramos",
+    "url": "https://blog.dtft.net/about/"
+  },
+  "homepage": "https://blog.dtft.net/about/",
   "//repository": "electron-builder 和 electron-updater 都从这里推断 GitHub Releases 地址，改仓库名 / 改用户名时这里必须跟着改，否则自动更新会静默失效。",
   "repository": {
     "type": "git",

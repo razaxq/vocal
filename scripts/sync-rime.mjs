@@ -23,6 +23,11 @@ if (selected.words.length < 500_000) throw new Error('上游词库不完整')
 let old
 try { old = JSON.parse(await readFile(new URL('catalog.json', directory), 'utf8')) } catch { /* 首次生成。 */ }
 const sha256 = createHash('sha256').update(dictionary).digest('hex')
+// Preserve upstream attribution in the runtime bundle without shipping the raw dictionary.
+const headerEnd = dictionary.search(/^---\s*$/m)
+if (headerEnd < 0) throw new Error('原词典缺少头部边界，请检查来源声明')
+await mkdir(directory, { recursive: true })
+await writeFile(new URL('UPSTREAM-NOTICES.txt', directory), dictionary.slice(0, headerEnd))
 if (old?.source?.revision === commit.sha && old?.source?.sha256 === sha256 && old?.source?.selection === 'full-pinyin-v2') {
   console.log('雾凇词库已是最新'); process.exit(0)
 }
