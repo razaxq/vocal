@@ -18,6 +18,7 @@ import { globalShortcut } from 'electron'
 import { uIOhook, UiohookKey } from 'uiohook-napi'
 import type { HotkeyConfig } from '@shared/types'
 import { ALL_RECORDABLE_KEYS, CANCEL_KEY } from '@shared/hotkeys'
+import { MouseHoldTrigger } from './mouseHold'
 
 export interface HotkeyEvents {
   onStart: () => void
@@ -39,6 +40,7 @@ export class HotkeyService {
   private armedByDoubleTap = false
   private keycode = 0
   private cfg: HotkeyConfig | null = null
+  private mouse: MouseHoldTrigger | undefined
 
   constructor(private events: HotkeyEvents) {}
 
@@ -46,7 +48,11 @@ export class HotkeyService {
     this.teardown()
     this.cfg = cfg
 
-    if (cfg.mode === 'toggle') {
+    if (cfg.mode === 'mouseHold') {
+      this.keycode = 0
+      this.mouse = new MouseHoldTrigger(cfg.mouseHoldDelayMs, cfg.debounceMs, this.events)
+      uIOhook.on('input', this.onMouseInput)
+    } else if (cfg.mode === 'toggle') {
       const ok = globalShortcut.register(cfg.accelerator, () => this.toggle())
       if (!ok) throw new Error(`热键 ${cfg.accelerator} 注册失败，可能已被其它程序占用`)
       // keycode 置 0，下面 onKeyDown 里主键那条分支永远不会命中，
@@ -64,12 +70,25 @@ export class HotkeyService {
       this.keycode = code
     }
 
-    // 三种模式都要监听：hold/doubleTap 靠它拿主键，toggle 靠它拿 Esc
-    uIOhook.on('keydown', this.onKeyDown)
-    uIOhook.on('keyup', this.onKeyUp)
+    // 鼠标模式不监听键盘，也不使用 Esc 取消。
+    if (cfg.mode !== 'mouseHold') {
+      uIOhook.on('keydown', this.onKeyDown)
+      uIOhook.on('keyup', this.onKeyUp)
+    }
     if (!this.hookRunning) {
       uIOhook.start()
       this.hookRunning = true
+    }
+  }
+
+  private onMouseInput = (e: { type: number; button?: unknown; x?: number; y?: number }): void => {
+    if (!this.mouse) return
+    // The binding emits dragged (10) through 'input', but not through 'mousemove'.
+    if (e.type === 8) this.mouse.up(e.button)
+    else if (e.type === 11) this.mouse.cancelWaiting()
+    else if (typeof e.x === 'number' && typeof e.y === 'number') {
+      if (e.type === 7) this.mouse.down(e.button, e.x, e.y)
+      else if (e.type === 9 || e.type === 10) this.mouse.move(e.x, e.y)
     }
   }
 
@@ -161,8 +180,18 @@ export class HotkeyService {
     globalShortcut.unregisterAll()
     uIOhook.off('keydown', this.onKeyDown)
     uIOhook.off('keyup', this.onKeyUp)
-    this.active = false
+    uIOhook.off('input', this.onMouseInput)
+    this.mouse?.dispose()
+    this.mouse = undefined
+    if (this.active) {
+      this.active = false
+      this.lastEndedAt = Date.now()
+      this.events.onStop()
+    }
     this.armedByDoubleTap = false
+    this.lastTapAt = 0
+    this.keycode = 0
+    this.cfg = null
   }
 
   dispose(): void {

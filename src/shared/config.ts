@@ -33,13 +33,14 @@ export const DEFAULT_CONSOLIDATE_PROMPT = [
 
 export const configSchema = z.object({
   hotkey: z.object({
-    mode: z.enum(['hold', 'toggle', 'doubleTap']).default('hold'),
+    mode: z.enum(['hold', 'toggle', 'doubleTap', 'mouseHold']).default('hold'),
     // 必须是 uiohook 认识的键名。写错了要到注册热键那一刻才炸，所以在这里就挡住。
     key: z.enum(ALL_RECORDABLE_KEYS as [string, ...string[]]).catch(DEFAULT_HOTKEY_KEY).default(DEFAULT_HOTKEY_KEY),
     accelerator: z.string().default('Control+Shift+Space'),
     doubleTapWindowMs: z.number().int().min(150).max(800).default(350),
     debounceMs: z.number().int().min(0).max(2000).default(300),
-    minHoldMs: z.number().int().min(0).max(2000).default(200)
+    minHoldMs: z.number().int().min(0).max(2000).default(200),
+    mouseHoldDelayMs: z.number().int().min(100).max(10000).default(1000)
   }).prefault({}),
 
   /**
