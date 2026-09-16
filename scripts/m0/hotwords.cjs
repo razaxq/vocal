@@ -14,6 +14,12 @@ try {
 } catch (error) { console.error(error); app.exit(1) }
 let saves = 0
 let failNext = false
+let deletes = 0
+let finishDelete
+let currentAsr = null
+ipcMain.handle('test:models', () => ({ ready: true, installed: Object.fromEntries(
+  Object.values(config.models).map(id => [id, { id, installed: true, bytes: 100 * 1048576 }])), asr: currentAsr }))
+ipcMain.handle('test:delete', () => { deletes++; return new Promise(resolve => { finishDelete = resolve }) })
 ipcMain.handle('test:get', () => config)
 ipcMain.handle('test:save', async (_, patch) => {
   saves++
@@ -31,8 +37,10 @@ contextBridge.exposeInMainWorld('vocal', {
   getUpdateStatus: async () => ({ state: 'idle' }), onUpdateStatus: off,
   getHotwordCatalog: async () => ({ version: 3, updatedAt: '2026-09-01', wordCount: 541809,
     words: ['测试词'], source: { eligibleCount: 541809 }, state: 'idle' }), onHotwordCatalog: off,
-  modelsStatus: async () => ({ ready: true, installed: {} }),
-  onModelsChanged: off, onModelProgress: off, onAsrStatus: off, onGotoTab: off
+  modelsStatus: () => ipcRenderer.invoke('test:models'), deleteModel: id => ipcRenderer.invoke('test:delete', id),
+  onModelsChanged: off, onModelProgress: off, onGotoTab: off,
+  onAsrStatus: cb => { const handler = (_, value) => cb(value); ipcRenderer.on('test:asr', handler);
+    return () => ipcRenderer.removeListener('test:asr', handler); }
 })
 `)
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
@@ -53,6 +61,25 @@ app.whenReady().then(async () => {
   await until(`[...document.querySelectorAll('nav button')].some(b => b.textContent === '识别')`)
   await run(`[...document.querySelectorAll('nav button')].find(b => b.textContent === '识别').click()`)
   await until(`Boolean(document.querySelector('textarea'))`)
+  currentAsr = { state: 'loading', targets: { offline: config.models.offline } }
+  win.webContents.send('test:asr', currentAsr)
+  await until(`document.querySelectorAll('[role="status"]').length === 1`)
+  assert.equal(await run(`document.querySelector('[role="status"]').closest('[role="radio"]').textContent.includes('Zipformer 中英')`), true)
+  assert.equal(await run(`document.body.innerText.includes('正在准备模型')`), false)
+  // 切走再回来仍能从模型状态快照恢复加载动画。
+  await run(`[...document.querySelectorAll('nav button')].find(b => b.textContent === '快捷键').click()`)
+  await until(`!document.querySelector('[role="radio"]')`)
+  await run(`[...document.querySelectorAll('nav button')].find(b => b.textContent === '识别').click()`)
+  await until(`document.querySelectorAll('[role="status"]').length === 1`)
+  currentAsr = { ...currentAsr, state: 'ready' }
+  win.webContents.send('test:asr', currentAsr)
+  await until(`document.querySelectorAll('[role="status"]').length === 0`)
+  await run(`window.removeModel = document.querySelector('button[title="删除模型"]'); removeModel.click(); removeModel.click()`)
+  await until(`document.querySelector('button[title="正在删除"]')?.disabled === true`)
+  assert.equal(deletes, 1)
+  assert.equal(await run(`document.querySelector('button[title="正在删除"] svg.animate-spin') !== null`), true)
+  finishDelete()
+  await until(`!document.querySelector('button[title="正在删除"]')`)
   await run(`window.field = document.querySelector('textarea');
     window.save = () => [...document.querySelectorAll('button')].find(b => /保存/.test(b.textContent));
     window.edit = text => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(field, text);
@@ -80,7 +107,7 @@ app.whenReady().then(async () => {
   await run('save().click()')
   await until(`save().textContent === '已保存'`)
   assert.deepEqual(config.hotwords, ['新增词'])
-  console.log('PASS built settings: IME composition, draft survives refresh, single save, failed-save retry')
+  console.log('PASS built settings: target-row loading and navigation, delete icon and duplicate-click guard, IME composition and save')
 }).catch(error => { console.error('FAIL', error); code = 1 }).finally(() => {
   clearTimeout(timeout); win?.destroy(); app.exit(code)
 })

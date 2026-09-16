@@ -27,17 +27,23 @@ const PHASE_LABEL: Record<ModelProgress['phase'], string> = {
 export function useModelStatus(): {
   status: ModelStatusInfo | null
   progress: Record<string, ModelProgress>
+  asrStatus: AsrStatus | null
   reload: () => void
 } {
   const [status, setStatus] = useState<ModelStatusInfo | null>(null)
   const [progress, setProgress] = useState<Record<string, ModelProgress>>({})
+  const [asrStatus, setAsrStatus] = useState<AsrStatus | null>(null)
 
   const reload = useCallback(() => {
-    void window.vocal.modelsStatus().then(setStatus)
+    void window.vocal.modelsStatus().then(value => {
+      setStatus(value)
+      setAsrStatus(previous => previous ?? value.asr ?? null)
+    })
   }, [])
 
   useEffect(reload, [reload])
   useEffect(() => window.vocal.onModelsChanged(reload), [reload])
+  useEffect(() => window.vocal.onAsrStatus(setAsrStatus), [])
 
   useEffect(() => window.vocal.onModelProgress((p) => {
     setProgress((prev) => ({ ...prev, [p.id]: p }))
@@ -45,7 +51,7 @@ export function useModelStatus(): {
     if (p.phase === 'done' || p.phase === 'error' || p.phase === 'cancelled') reload()
   }), [reload])
 
-  return { status, progress, reload }
+  return { status, progress, reload, asrStatus }
 }
 
 /** 顶部的「还不能开始识别」警示条。 */
@@ -61,7 +67,7 @@ export function MissingModelsNotice({ status }: {
   )
 }
 
-export function ModelGroup({ slot, title, hint, cfg, patch, status, progress, fixed, allowNone }: {
+export function ModelGroup({ slot, title, hint, cfg, patch, status, progress, fixed, allowNone, asrStatus }: {
   slot: 'streaming' | 'offline' | 'punct'
   title: string
   hint?: string
@@ -73,9 +79,13 @@ export function ModelGroup({ slot, title, hint, cfg, patch, status, progress, fi
   fixed?: boolean
   /** 允许选「不使用」—— 两层都关掉就没法识别了，由调用方判断 */
   allowNone?: boolean
+  asrStatus?: AsrStatus | null
 }): React.ReactElement {
   const list = modelsOf(slot)
   const current = fixed ? list[0]?.id : (cfg.models as Record<string, string>)[slot]
+  const target = slot !== 'punct' ? asrStatus?.targets?.[slot] : undefined
+  const switching = asrStatus?.state === 'loading'
+  const error = asrStatus?.state === 'error' ? asrStatus.message : undefined
 
   /**
    * 选中即启用；没下载就顺手开始下 —— 这两件事从来不会分开做。
@@ -106,6 +116,8 @@ export function ModelGroup({ slot, title, hint, cfg, patch, status, progress, fi
             name="不使用"
             sub={allowNone ? undefined : '至少保留一种识别模型'}
             onSelect={() => allowNone && select(MODEL_NONE)}
+            right={target === MODEL_NONE && switching ? <LoadingIcon label={asrStatus?.message ?? '正在切换模型'} /> : undefined}
+            below={target === MODEL_NONE && error ? <div className="mt-2 pl-[26px]"><ErrorDetails title="模型切换失败" detail={error} /></div> : undefined}
           />
         )}
         {list.map((m) => (
@@ -116,6 +128,9 @@ export function ModelGroup({ slot, title, hint, cfg, patch, status, progress, fi
             installed={status?.installed[m.id]?.installed ?? false}
             bytes={status?.installed[m.id]?.bytes ?? 0}
             progress={progress[m.id]}
+            switching={m.id === target && switching}
+            switchLabel={asrStatus?.message}
+            switchError={m.id === target ? error : undefined}
             onSelect={() => select(m.id)}
           />
         ))}
@@ -179,13 +194,16 @@ function PickRow({ active, disabled, name, sub, onSelect, right, below }: {
   )
 }
 
-function ModelRow({ model, active, installed, bytes, progress, onSelect }: {
+function ModelRow({ model, active, installed, bytes, progress, onSelect, switching, switchLabel, switchError }: {
   model: ModelEntry
   active: boolean
   installed: boolean
   bytes: number
   progress?: ModelProgress
   onSelect: () => void
+  switching?: boolean
+  switchLabel?: string
+  switchError?: string
 }): React.ReactElement {
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
@@ -217,7 +235,9 @@ function ModelRow({ model, active, installed, bytes, progress, onSelect }: {
       sub={[model.langs, model.note].filter(Boolean).join(' · ')}
       onSelect={onSelect}
       right={
-        busy ? (
+        <>
+        {switching && !deleting && <LoadingIcon label={switchLabel ?? '正在切换模型'} />}
+        {busy ? (
           <Button variant="default" size="sm"
                   onClick={() => void window.vocal.cancelModelDownload(model.id)}>
             取消
@@ -225,19 +245,29 @@ function ModelRow({ model, active, installed, bytes, progress, onSelect }: {
         ) : installed ? (
           <>
             <span className="text-[11px] tabular-nums text-[var(--fg-subtle)]">{mb(bytes)}</span>
-            <Button variant={deleting ? 'default' : 'danger'} size="sm"
-                    disabled={deleting} onClick={() => void remove()}>
-              {deleting ? '正在删除…' : '删除'}
-            </Button>
+            <button type="button" title={deleting ? '正在删除' : '删除模型'}
+              aria-label={deleting ? `正在删除 ${model.name}` : `删除 ${model.name}`}
+              aria-busy={deleting} disabled={deleting || switching} onClick={() => void remove()}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--fg-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--danger)] disabled:cursor-not-allowed disabled:text-[var(--fg-subtle)] disabled:opacity-45 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]">
+              {deleting ? <LoadingIcon label="正在删除" /> : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6" />
+                </svg>
+              )}
+            </button>
           </>
         ) : (
           <span className="text-[11px] tabular-nums text-[var(--fg-subtle)]">
             下载约 {model.downloadBytes ? mb(model.downloadBytes) : `${model.approxMB} MB`}
           </span>
-        )
+        )}
+        </>
       }
       below={
         <>
+          {switchError && !busy && !deleting && <div className="mt-2 pl-[26px]" onClick={e => e.stopPropagation()}>
+            <ErrorDetails title="模型切换失败" detail={switchError} />
+          </div>}
           {busy && (
             <div className="mt-2 pl-[26px]">
               <div className="h-1 overflow-hidden rounded-full bg-[var(--surface-hover)]">
@@ -282,32 +312,11 @@ function ModelRow({ model, active, installed, bytes, progress, onSelect }: {
   )
 }
 
-/**
- * 换模型后的重载状态。
- *
- * 以前这里写的是「换模型后重启 Vocal 生效」—— 那是把实现的限制直接
- * 转嫁给用户。现在主进程会把两个 ASR 工作进程换掉，这行只是告诉用户
- * 那一两秒正在发生什么。
- */
-export function AsrStatusLine(): React.ReactElement | null {
-  const [st, setSt] = useState<AsrStatus | null>(null)
-
-  useEffect(() => window.vocal.onAsrStatus((s) => {
-    setSt(s)
-    if (s.state === 'ready') setTimeout(() => setSt(null), 2500)
-  }), [])
-
-  if (!st) return null
-  if (st.state === 'error') {
-    return <div className="mb-4"><ErrorDetails title="模型加载失败" detail={st.message} /></div>
-  }
-  const text = st.state === 'loading'
-    ? '正在准备模型…'
-    : '模型已就绪'
-
-  return (
-    <p className="mb-4 text-[12px] text-[var(--fg-muted)]">
-      {text}
-    </p>
-  )
+function LoadingIcon({ label }: { label: string }): React.ReactElement {
+  return <span role="status" aria-label={label} title={label} className="inline-flex h-4 w-4 shrink-0 text-current">
+    <svg className="animate-spin motion-reduce:animate-none" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2.5" opacity="0.2" />
+      <path d="M12 3a9 9 0 0 1 9 9" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+    </svg>
+  </span>
 }

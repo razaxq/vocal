@@ -144,6 +144,7 @@ export interface InstalledModel {
 }
 
 export interface ModelStatusInfo {
+  asr?: AsrStatus | null
   ready: boolean
   missing: string[]
   root: string
@@ -188,6 +189,8 @@ export interface UpdateStatus {
 /** ASR 引擎当前状态，换模型时用来告诉用户「正在重载」。 */
 export interface AsrStatus {
   state: 'loading' | 'ready' | 'error'
+  /** 本次切换对应的槽位与目标模型，供模型行显示状态。 */
+  targets?: Partial<AppConfig['models']>
   message?: string
 }
 

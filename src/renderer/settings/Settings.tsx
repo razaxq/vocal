@@ -19,7 +19,7 @@ import {
   WindowControls, AppMark
 } from './ui'
 import { HOTKEY_CHOICES as KEYS } from '@shared/hotkeys'
-import { useModelStatus, MissingModelsNotice, ModelGroup, AsrStatusLine } from './models'
+import { useModelStatus, MissingModelsNotice, ModelGroup } from './models'
 import { MicSection } from './mic'
 import { AboutTab } from './about'
 import { applyTheme, watchSystemTheme, type ThemeMode } from '@renderer/shared/theme'
@@ -213,12 +213,11 @@ function HotkeyTab({ cfg, patch }: TabProps): React.ReactElement {
 /* ============================================================ */
 
 function AsrTab({ cfg, patch }: TabProps): React.ReactElement {
-  const { status, progress } = useModelStatus()
+  const { status, progress, asrStatus } = useModelStatus()
 
   return (
     <Page title="识别">
       <MissingModelsNotice status={status} />
-      <AsrStatusLine />
 
       <MicSection cfg={cfg} patch={patch} />
 
@@ -250,7 +249,7 @@ function AsrTab({ cfg, patch }: TabProps): React.ReactElement {
         slot="streaming"
         title="流式模型"
         hint="实时预览文字，关闭可节省内存"
-        cfg={cfg} patch={patch} status={status} progress={progress}
+        cfg={cfg} patch={patch} status={status} progress={progress} asrStatus={asrStatus}
         allowNone={cfg.models.offline !== MODEL_NONE}
       />
 
@@ -258,7 +257,7 @@ function AsrTab({ cfg, patch }: TabProps): React.ReactElement {
         slot="offline"
         title="定稿模型"
         hint="说完后重新识别，生成最终文字"
-        cfg={cfg} patch={patch} status={status} progress={progress}
+        cfg={cfg} patch={patch} status={status} progress={progress} asrStatus={asrStatus}
         allowNone={cfg.models.streaming !== MODEL_NONE}
       />
 

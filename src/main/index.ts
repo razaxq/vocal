@@ -5,7 +5,7 @@ import {
 import { join, dirname } from 'node:path'
 import { mkdirSync, accessSync, readdirSync, readFileSync, constants } from 'node:fs'
 import { CH } from '@shared/ipc'
-import type { AppConfig } from '@shared/ipc'
+import type { AppConfig, AsrStatus } from '@shared/ipc'
 import type { SessionState, InjectionTarget, CleanupConfig } from '@shared/types'
 import type { InstalledModel, ModelProgress, AppStats, ProcStat, UpdateStatus } from '@shared/ipc'
 import { ConfigService } from './services/config'
@@ -94,6 +94,11 @@ let startup: StartupService
 let hotwordCatalog: HotwordCatalogService
 let hotwordsPending = false
 let modelMaintenance = false
+let asrStatus: AsrStatus | null = null
+function publishAsrStatus(status: AsrStatus): void {
+  asrStatus = status
+  broadcast(CH.asrStatus, status)
+}
 
 /**
  * 面板的显隐都是分步的（先压暗再显示、先放动画再藏），中间挂着定时器。
@@ -319,7 +324,11 @@ function registerIpc(injector: TextInjector): void {
       JSON.stringify(before.models) !== JSON.stringify(next.models) ||
       before.asr.endpointSilenceMs !== next.asr.endpointSilenceMs
     ) {
-      void reloadAsr(next)
+      const targets: Partial<AppConfig['models']> = {}
+      for (const slot of ['streaming', 'offline'] as const) {
+        if (before.models[slot] !== next.models[slot]) targets[slot] = next.models[slot]
+      }
+      void reloadAsr(next, Object.keys(targets).length ? targets : next.models)
       broadcast(CH.panelLayout, { compact: panelCompact(next) })
     }
     if (before.update.auto !== next.update.auto) {
@@ -355,6 +364,7 @@ function registerIpc(injector: TextInjector): void {
       ...checkModels(c.models),
       installed,
       active: { streaming: c.models.streaming, offline: c.models.offline },
+      asr: asrStatus,
       dataDir: dataDir.dir,
       portable: dataDir.portable
     }
@@ -370,6 +380,7 @@ function registerIpc(injector: TextInjector): void {
     const entry = findAnyModel(id)
     if (!entry) throw new Error('找不到这个模型')
     if (modelMaintenance) throw new Error('有模型正在处理，请稍后重试')
+    if (asrReloading) throw new Error('模型正在切换，请稍后重试')
     if (downloader.isDownloading(id)) throw new Error('请先取消下载，再删除模型')
     const selected = config.get().models
     const inUse = selected.streaming === id || selected.offline === id || entry.kind === 'punct-ct-transformer'
@@ -440,18 +451,26 @@ function registerIpc(injector: TextInjector): void {
  * 正在说话时不动：等这次会话结束再说，否则音频流会断在半截。
  */
 let reloadPending = false
-async function reloadAsr(cfg: AppConfig): Promise<void> {
-  if (modelMaintenance || (session.current !== 'idle' && session.current !== 'error')) {
+let asrReloading = false
+let pendingReloadTargets: Partial<AppConfig['models']> = {}
+async function reloadAsr(cfg: AppConfig, targets?: Partial<AppConfig['models']>): Promise<void> {
+  pendingReloadTargets = { ...pendingReloadTargets, ...(targets ?? (Object.keys(pendingReloadTargets).length ? {} : cfg.models)) }
+  if (asrReloading || modelMaintenance || (session.current !== 'idle' && session.current !== 'error')) {
     reloadPending = true
+    publishAsrStatus({ state: 'loading', targets: { ...(asrReloading ? asrStatus?.targets : {}), ...pendingReloadTargets },
+      message: asrReloading ? '正在切换模型' : '当前任务结束后切换' })
     return
   }
   reloadPending = false
+  const currentTargets = pendingReloadTargets
+  pendingReloadTargets = {}
   const status = checkModels(cfg.models)
   if (!status.ready) {
-    broadcast(CH.asrStatus, { state: 'error', message: `缺少：${status.missing.join('、')}` })
+    publishAsrStatus({ state: 'error', targets: currentTargets, message: `缺少：${status.missing.join('、')}` })
     return
   }
-  broadcast(CH.asrStatus, { state: 'loading' })
+  asrReloading = true
+  publishAsrStatus({ state: 'loading', targets: currentTargets })
   try {
     await asr.reload(
       resolveModelPaths(cfg.models),
@@ -463,12 +482,18 @@ async function reloadAsr(cfg: AppConfig): Promise<void> {
     asr.updateHotwords(recognitionHotwords(config.get()))
     asr.updateDictionary(config.get().networkHotwords.enabled ? hotwordCatalog.data : undefined)
     asr.updateCleanup(cleanupConfigOf(config.get()))
-    broadcast(CH.asrStatus, { state: 'ready' })
+    if (!reloadPending) publishAsrStatus({ state: 'ready', targets: currentTargets })
   } catch (e) {
-    broadcast(CH.asrStatus, {
+    if (!reloadPending) publishAsrStatus({
       state: 'error',
+      targets: currentTargets,
       message: e instanceof Error ? e.message : String(e)
     })
+  } finally {
+    asrReloading = false
+    if (reloadPending && !modelMaintenance && (session.current === 'idle' || session.current === 'error')) {
+      void reloadAsr(config.get())
+    }
   }
 }
 
