@@ -6,14 +6,14 @@
  * 悬浮面板本来就常驻持有麦克风，这里多开一瞬不改变什么。
  */
 import { useEffect, useRef, useState } from 'react'
-import type { AppConfig } from '@shared/ipc'
+import type { AppConfig, ConfigPatch } from '@shared/ipc'
 import { Section, Row, Select, Button } from './ui'
 
 const SYSTEM_DEFAULT = ''
 
 export function MicSection({ cfg, patch }: {
   cfg: AppConfig
-  patch: (p: Partial<AppConfig>) => Promise<void>
+  patch: (p: ConfigPatch) => Promise<void>
 }): React.ReactElement {
   const [devices, setDevices] = useState<Array<[string, string]>>([])
   const [denied, setDenied] = useState(false)

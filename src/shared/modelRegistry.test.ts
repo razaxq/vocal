@@ -31,7 +31,7 @@ test('每个模型的必填字段都在', () => {
       for (const key of ['id', 'name', 'kind', 'url', 'dir', 'files']) {
         assert.ok(m[key], `${slot} 里的「${m['id']}」缺 ${key}`)
       }
-      assert.ok((m['files'] as Record<string, string>)['tokens'] || slot === 'punct' || slot === 'vad',
+      assert.ok((m['files'] as Record<string, string>)['tokens'] || slot === 'punct' || slot === 'vad' || slot === 'correction',
         `${m['id']} 缺 tokens`)
     }
   }

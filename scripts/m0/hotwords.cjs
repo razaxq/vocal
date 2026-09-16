@@ -18,14 +18,14 @@ let deletes = 0
 let finishDelete
 let currentAsr = null
 ipcMain.handle('test:models', () => ({ ready: true, installed: Object.fromEntries(
-  Object.values(config.models).map(id => [id, { id, installed: true, bytes: 100 * 1048576 }])), asr: currentAsr }))
+  [...Object.values(config.models), 'macbert4csc', 'bert-chinese-int8'].map(id => [id, { id, installed: true, bytes: 100 * 1048576 }])), asr: currentAsr }))
 ipcMain.handle('test:delete', () => { deletes++; return new Promise(resolve => { finishDelete = resolve }) })
 ipcMain.handle('test:get', () => config)
 ipcMain.handle('test:save', async (_, patch) => {
   saves++
   await new Promise(resolve => setTimeout(resolve, 80))
   if (failNext) { failNext = false; throw new Error('test save failure') }
-  config = { ...config, ...patch }
+  config = { ...config, ...patch, models: { ...config.models, ...patch.models } }
   return config
 })
 const preload = join(dir, 'preload.cjs')
@@ -75,10 +75,34 @@ app.whenReady().then(async () => {
   saves = 0
   await run(`[...document.querySelectorAll('nav button')].find(b => b.textContent === '识别').click()`)
   await until(`Boolean(document.querySelector('textarea'))`)
+  for (const [label, id] of [['MacBERT 中文纠错', 'macbert4csc'], ['BERT 中文纠错 · 轻量', 'bert-chinese-int8']]) {
+    await run(`[...document.querySelectorAll('[role="radio"]')].find(row => row.textContent.includes(${JSON.stringify(label)})).click()`)
+    await until(`[...document.querySelectorAll('[role="radio"]')].find(row => row.textContent.includes(${JSON.stringify(label)}))?.getAttribute('aria-checked') === 'true'`)
+    assert.equal(config.models.correction, id)
+  }
+  await run(`[...document.querySelectorAll('[role="radio"]')].find(row => row.textContent.includes('MacBERT 中文纠错')).parentElement.querySelector('[role="radio"]').click()`)
+  await sleep(150)
+  assert.equal(config.models.correction, 'none')
+  await run(`[...document.querySelectorAll('[role="radio"]')].find(row => row.textContent.includes('Zipformer 中文')).click()`)
+  await sleep(150)
+  // Both clicks happen before either IPC save resolves, while the first model is loading.
+  currentAsr = { state: 'loading', targets: { streaming: 'none' } }
+  win.webContents.send('test:asr', currentAsr)
+  await run(`document.querySelector('[role="radio"]').click();
+    [...document.querySelectorAll('[role="radio"]')].find(row => row.textContent.includes('MacBERT 中文纠错')).click()`)
+  await sleep(250)
+  assert.equal(config.models.streaming, 'none', 'changing correction must retain the pending streaming selection')
+  assert.equal(config.models.correction, 'macbert4csc')
+  await run(`[...document.querySelectorAll('[role="radio"]')].find(row => row.textContent.includes('Zipformer 中文')).click()`)
+  await sleep(150)
+  currentAsr = null
+  console.log('PASS overlapping model selections preserve both slots')
+  saves = 0
+  console.log('PASS correction settings: select either model or disable independently')
   currentAsr = { state: 'loading', targets: { offline: config.models.offline } }
   win.webContents.send('test:asr', currentAsr)
   await until(`document.querySelectorAll('[role="status"]').length === 1`)
-  assert.equal(await run(`document.querySelector('[role="status"]').closest('[role="radio"]').textContent.includes('Zipformer 中英')`), true)
+  assert.equal(await run(`document.querySelector('[role="status"]').closest('[role="radio"]').textContent.includes('Paraformer 三语')`), true)
   assert.equal(await run(`document.body.innerText.includes('正在准备模型')`), false)
   // 切走再回来仍能从模型状态快照恢复加载动画。
   await run(`[...document.querySelectorAll('nav button')].find(b => b.textContent === '触发方式').click()`)

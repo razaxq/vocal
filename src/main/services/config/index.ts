@@ -1,7 +1,7 @@
 /** 配置持久化。electron-store 落盘到 userData/config.json，zod 负责校验与补默认值。 */
 import Store from 'electron-store'
-import { configSchema, defaultConfig } from '@shared/config'
-import type { AppConfig } from '@shared/ipc'
+import { configSchema, defaultConfig, applyConfigPatch } from '@shared/config'
+import type { AppConfig, ConfigPatch } from '@shared/ipc'
 
 export class ConfigService {
   private store = new Store<{ config: AppConfig }>({ name: 'config' })
@@ -16,8 +16,8 @@ export class ConfigService {
 
   get(): AppConfig { return this.cache }
 
-  set(patch: Partial<AppConfig>): AppConfig {
-    const merged = configSchema.parse({ ...this.cache, ...patch }) as AppConfig
+  set(patch: ConfigPatch): AppConfig {
+    const merged = applyConfigPatch(this.cache, patch)
     this.cache = merged
     this.store.set('config', merged)
     return merged

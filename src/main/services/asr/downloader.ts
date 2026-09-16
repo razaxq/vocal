@@ -54,8 +54,11 @@ export class ModelDownloader {
 
     const ctrl = new AbortController()
     this.active.set(entry.id, ctrl)
-    const emit = (p: Partial<ModelProgress>): void =>
+    const emit = (p: Partial<ModelProgress>): void => {
+      // Terminal notifications must see the task as finished (reload may run synchronously).
+      if (p.phase === 'done' || p.phase === 'error' || p.phase === 'cancelled') this.active.delete(entry.id)
       this.onProgress({ id: entry.id, phase: 'downloading', received: 0, total: 0, ...p })
+    }
 
     const targetDir = join(this.root, entry.dir)
     // 带上真实扩展名：有些解压器靠它判断格式，而且出问题时用户自己也能找到
@@ -64,6 +67,14 @@ export class ModelDownloader {
     try {
       emit({ phase: 'queued' })
       await mkdir(this.root, { recursive: true })
+
+      if (entry.archive === 'files') {
+        const { downloadModelFiles } = await import('../../../../scripts/download-model-files.mjs')
+        await downloadModelFiles(entry, targetDir, ctrl.signal, (received, total) => emit({ received, total }))
+        const size = await dirSize(targetDir)
+        emit({ phase: 'done', received: size, total: size })
+        return
+      }
 
       /* ---------- 下载 ---------- */
       const res = await fetch(entry.url, { redirect: 'follow', signal: ctrl.signal })
@@ -146,13 +157,13 @@ export class ModelDownloader {
 
       if (ctrl.signal.aborted) {
         // 取消时把半成品清掉，免得下次被当成「已下载」
-        await rm(targetDir, { recursive: true, force: true }).catch(() => undefined)
+        if (entry.archive !== 'files') await rm(targetDir, { recursive: true, force: true }).catch(() => undefined)
         emit({ phase: 'cancelled', message: '已取消' })
       } else {
         emit({ phase: 'error', message: e instanceof Error ? e.message : String(e) })
       }
     } finally {
-      this.active.delete(entry.id)
+      if (this.active.get(entry.id) === ctrl) this.active.delete(entry.id)
     }
   }
 }

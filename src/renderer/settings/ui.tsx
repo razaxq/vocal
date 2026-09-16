@@ -49,18 +49,18 @@ export function Section({ title, hint, children, action }: {
   )
 }
 
-export function Row({ label, hint, children, stack }: {
-  label: string; hint?: string; children: ReactNode; stack?: boolean
+export function Row({ label, hint, children, stack, wideLabel }: {
+  label: string; hint?: string; children: ReactNode; stack?: boolean; wideLabel?: boolean
 }): React.ReactElement {
   return (
     <div className={stack ? '' : 'sm:flex sm:items-start sm:gap-5'}>
-      <div className={stack ? 'mb-2' : 'w-36 shrink-0 pt-1.5'}>
+      <div className={stack ? 'mb-2' : wideLabel ? 'min-w-0 pt-1.5 sm:flex-1' : 'w-36 shrink-0 pt-1.5'}>
         <div className="text-[13px] text-[var(--fg)]">{label}</div>
         {hint && (
           <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--fg-subtle)]">{hint}</p>
         )}
       </div>
-      <div className="min-w-0 flex-1">{children}</div>
+      <div className={wideLabel && !stack ? 'min-w-0 sm:shrink-0' : 'min-w-0 flex-1'}>{children}</div>
     </div>
   )
 }
@@ -68,7 +68,7 @@ export function Row({ label, hint, children, stack }: {
 /* ---------------- 输入 ---------------- */
 
 const field =
-  'w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 ' +
+  'rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 ' +
   'text-[13px] text-[var(--fg)] transition-colors ' +
   'hover:border-[var(--border-strong)] focus:border-[var(--accent)] focus:outline-none'
 
@@ -128,7 +128,7 @@ export function Select({ value, onChange, options, className = '', placeholder }
         type="button"
         onClick={() => setOpen(!open)}
         onKeyDown={onKeyDown}
-        className={`${field} flex items-center justify-between gap-2 text-left ${
+        className={`${field} flex w-full items-center justify-between gap-2 text-left ${
           open ? 'border-[var(--accent)]' : ''
         }`}
       >
@@ -193,7 +193,7 @@ export function Input({ value, onChange, type = 'text', placeholder, mono, class
       value={value}
       placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)}
-      className={`${field} ${mono ? 'font-mono text-[12px]' : ''} ${className}`}
+      className={`${field} w-full ${mono ? 'font-mono text-[12px]' : ''} ${className}`}
     />
   )
 }
@@ -212,7 +212,7 @@ export function Textarea({ value, onChange, rows = 4, placeholder, mono, classNa
       rows={rows}
       placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)}
-      className={`${field} resize-y leading-relaxed ${mono ? 'font-mono text-[12px]' : ''} ${className}`}
+      className={`${field} w-full resize-y leading-relaxed ${mono ? 'font-mono text-[12px]' : ''} ${className}`}
     />
   )
 }
@@ -221,16 +221,16 @@ export function Num({ value, onChange, min, max, suffix }: {
   value: number; onChange: (n: number) => void; min?: number; max?: number; suffix?: string
 }): React.ReactElement {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex w-fit items-center gap-2">
       <input
         type="number"
         value={value}
         min={min}
         max={max}
         onChange={(e) => onChange(Number(e.target.value) || 0)}
-        className={`${field} w-28 tabular-nums`}
+        className={`${field} w-28 shrink-0 tabular-nums`}
       />
-      {suffix && <span className="text-[12px] text-[var(--fg-muted)]">{suffix}</span>}
+      {suffix && <span className="shrink-0 text-[12px] text-[var(--fg-muted)]">{suffix}</span>}
     </div>
   )
 }

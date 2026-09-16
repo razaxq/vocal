@@ -20,10 +20,11 @@ function fileOf(root: string, m: ModelEntry, key: string): string {
 export interface ModelSelection {
   streaming: string
   offline: string
+  correction?: string
 }
 
 export function resolveModelPaths(
-  sel: ModelSelection = { streaming: DEFAULT_MODEL_IDS.streaming, offline: DEFAULT_MODEL_IDS.offline },
+  sel: ModelSelection = DEFAULT_MODEL_IDS,
   root = modelsRoot()
 ): ModelPaths {
   // 'none' 表示这一层不用 —— 路径留空，对应的工作进程根本不会去加载
@@ -33,8 +34,13 @@ export function resolveModelPaths(
   const off = offOff ? null : resolveModel('offline', sel.offline)
   const punct = resolveModel('punct', DEFAULT_MODEL_IDS.punct)
   const vad = resolveModel('vad', DEFAULT_MODEL_IDS.vad)
+  const correction = sel.correction && sel.correction !== MODEL_NONE ? resolveModel('correction', sel.correction) : undefined
 
   return {
+    ...(correction && Object.values(correction.files).every(file => existsSync(join(root, correction.dir, file))) ? { correction: {
+      model: fileOf(root, correction, 'model'), vocab: fileOf(root, correction, 'vocab'),
+      mode: correction.correctionMode ?? 'csc'
+    } } : {}),
     streaming: st
       ? {
           kind: st.kind as ModelPaths['streaming']['kind'],
@@ -72,7 +78,7 @@ export interface ModelStatus {
  * 用户主动关掉的东西不该报缺失。
  */
 export function checkModels(
-  sel: ModelSelection = { streaming: DEFAULT_MODEL_IDS.streaming, offline: DEFAULT_MODEL_IDS.offline }
+  sel: ModelSelection = DEFAULT_MODEL_IDS
 ): ModelStatus {
   const p = resolveModelPaths(sel)
   const checks: Array<[string, string]> = [['标点模型', p.punct]]

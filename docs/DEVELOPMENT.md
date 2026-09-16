@@ -24,6 +24,8 @@ npm run dist       # 生成安装包和便携包，输出到 release/
 
 ## 主要模块
 
+本地纠错模型、文本对比与调试命令见 [同音纠错](CORRECTION.md)。
+
 | 模块 | 实现 |
 |---|---|
 | 桌面界面 | Electron、React、electron-vite |

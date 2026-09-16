@@ -22,7 +22,8 @@ export default defineConfig({
           // 两个 ASR 工作进程由 utilityProcess.fork 拉起，各自需要独立产物。
           // 分成两个进程是为了让流式解码和定稿重转写真正并行。
           stream: resolve('src/asr-worker/stream.ts'),
-          finalize: resolve('src/asr-worker/finalize.ts')
+          finalize: resolve('src/asr-worker/finalize.ts'),
+          correction: resolve('src/asr-worker/correction.ts')
         }
       }
     }

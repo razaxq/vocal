@@ -30,11 +30,12 @@ const has = (f) => args.includes(f)
 const destArg = args.indexOf('--dest')
 const modelArg = args.indexOf('--model')
 
-const SLOTS = ['streaming', 'offline', 'punct', 'vad']
+const SLOTS = ['streaming', 'offline', 'punct', 'vad', 'correction']
 /** 不指定就下这套 —— 和 src/shared/modelRegistry.ts 的 DEFAULT_MODEL_IDS 对应 */
 const DEFAULTS = {
-  streaming: 'zipformer-zh',
-  offline: 'zipformer-zh-en',
+  streaming: 'none',
+  offline: 'paraformer-yue-offline',
+  correction: 'macbert4csc',
   punct: 'ct-transformer',
   vad: 'silero'
 }
@@ -54,7 +55,7 @@ function selected() {
       process.exit(1)
     }
     // 单独下一个流式/定稿模型时，标点和 VAD 也得在
-    return [found, ...allEntries().filter((m) => m.slot === 'punct' || m.slot === 'vad')]
+    return found.slot === 'correction' ? [found] : [found, ...allEntries().filter((m) => m.slot === 'punct' || m.slot === 'vad')]
   }
   return allEntries().filter((m) => DEFAULTS[m.slot] === m.id)
 }
@@ -121,7 +122,7 @@ async function main() {
 
   if (has('--list')) {
     for (const slot of SLOTS) {
-      const label = { streaming: '流式识别', offline: '定稿重转写', punct: '标点', vad: '语音检测' }[slot]
+      const label = { streaming: '流式识别', offline: '定稿重转写', punct: '标点', vad: '语音检测', correction: '同音纠错' }[slot]
       console.log(`  【${label}】`)
       for (const m of registry[slot]) {
         const s = statusOf(m)
@@ -149,7 +150,10 @@ async function main() {
     console.log(`  ↓ ${item.name} — ${item.langs} — 下载约 ${human(item.downloadBytes ?? item.approxMB * (1 << 20))}`)
     const targetDir = join(dest, item.dir)
 
-    if (item.archive === 'raw') {
+    if (item.archive === 'files') {
+      const { downloadModelFiles } = await import('./download-model-files.mjs')
+      await downloadModelFiles(item, targetDir)
+    } else if (item.archive === 'raw') {
       mkdirSync(targetDir, { recursive: true })
       await download(item.url, join(targetDir, Object.values(item.files)[0]))
     } else {

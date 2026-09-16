@@ -219,5 +219,73 @@
       "prune": [],
       "downloadBytes": 643854
     }
+  ],
+  "correction": [
+    {
+      "id": "macbert4csc",
+      "name": "MacBERT 中文纠错",
+      "langs": "中文",
+      "note": "专用纠错模型，结合雾凇同音候选",
+      "kind": "correction-bert",
+      "correctionMode": "csc",
+      "url": "https://huggingface.co/shibing624/macbert4csc-base-chinese/resolve/615e6e09ef9a69ec487bc7c641ec3a311e2c11b9/onnx/model.onnx",
+      "dir": "macbert4csc",
+      "approxMB": 452,
+      "downloadBytes": 474446473,
+      "installedBytes": 474446473,
+      "archive": "files",
+      "files": {
+        "model": "model.onnx",
+        "vocab": "vocab.txt"
+      },
+      "prune": [],
+      "downloads": [
+        {
+          "file": "model.onnx",
+          "url": "https://huggingface.co/shibing624/macbert4csc-base-chinese/resolve/615e6e09ef9a69ec487bc7c641ec3a311e2c11b9/onnx/model.onnx",
+          "bytes": 474336933,
+          "sha256": "a4d9d6807c0c8bc9d014462a728e7212315630c669a6bd670b653154391a73f3"
+        },
+        {
+          "file": "vocab.txt",
+          "url": "https://huggingface.co/shibing624/macbert4csc-base-chinese/resolve/615e6e09ef9a69ec487bc7c641ec3a311e2c11b9/vocab.txt",
+          "bytes": 109540,
+          "sha256": "45bbac6b341c319adc98a532532882e91a9cefc0329aa57bac9ae761c27b291c"
+        }
+      ]
+    },
+    {
+      "id": "bert-chinese-int8",
+      "name": "BERT 中文纠错 · 轻量",
+      "langs": "中文",
+      "note": "量化语境模型，按上下文筛选同音候选",
+      "kind": "correction-bert",
+      "correctionMode": "mlm",
+      "url": "https://huggingface.co/Xenova/bert-base-chinese/resolve/18b8e1c8e40928dbaa1f7e7f49a4c64c94f6785b/onnx/model_quantized.onnx",
+      "dir": "bert-chinese-int8",
+      "approxMB": 99,
+      "downloadBytes": 103705950,
+      "installedBytes": 103705950,
+      "archive": "files",
+      "files": {
+        "model": "model.onnx",
+        "vocab": "vocab.txt"
+      },
+      "prune": [],
+      "downloads": [
+        {
+          "file": "model.onnx",
+          "url": "https://huggingface.co/Xenova/bert-base-chinese/resolve/18b8e1c8e40928dbaa1f7e7f49a4c64c94f6785b/onnx/model_quantized.onnx",
+          "bytes": 103596410,
+          "sha256": "918f5023c235d9667f543c81fe00f6a324c5c41b8c5e335db2ce7ed6e249b739"
+        },
+        {
+          "file": "vocab.txt",
+          "url": "https://huggingface.co/Xenova/bert-base-chinese/resolve/18b8e1c8e40928dbaa1f7e7f49a4c64c94f6785b/vocab.txt",
+          "bytes": 109540,
+          "sha256": "45bbac6b341c319adc98a532532882e91a9cefc0329aa57bac9ae761c27b291c"
+        }
+      ]
+    }
   ]
 }

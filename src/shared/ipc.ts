@@ -52,11 +52,15 @@ export const CH = {
   audioStopped: 'audio:stopped'
 } as const
 
+/** Model selection updates are atomic per slot; other settings retain their existing shape. */
+export type ConfigPatch = Omit<Partial<AppConfig>, 'models'> & { models?: Partial<AppConfig['models']> }
+
 export interface AppConfig {
   hotkey: HotkeyConfig
   models: {
     streaming: string
     offline: string
+    correction: string
   }
   asr: {
     /** 停顿多久算一句说完（毫秒） */
@@ -150,8 +154,8 @@ export interface ModelStatusInfo {
   root: string
   /** 每个模型 id 的安装状态和占用空间 */
   installed: Record<string, InstalledModel>
-  /** 当前实际在用的是哪两个模型 */
-  active: { streaming: string; offline: string }
+  /** 当前选择的识别与纠错模型。 */
+  active: { streaming: string; offline: string; correction: string }
   /** 数据目录，便携模式下就是程序旁边的 data/ */
   dataDir: string
   portable: boolean
@@ -211,7 +215,7 @@ export interface PanelPartial {
 /** preload 暴露给渲染进程的 API 形状。 */
 export interface VocalBridge {
   getConfig(): Promise<AppConfig>
-  setConfig(patch: Partial<AppConfig>): Promise<AppConfig>
+  setConfig(patch: ConfigPatch): Promise<AppConfig>
   getHotwordCatalog(): Promise<HotwordCatalogStatus>
   checkHotwordCatalog(): Promise<HotwordCatalogStatus>
   onHotwordCatalog(cb: (status: HotwordCatalogStatus) => void): () => void

@@ -1,11 +1,38 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, mkdir, writeFile, readdir } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ModelDownloader } from './downloader.ts'
 import type { ModelEntry } from '../../../shared/modelRegistry.ts'
 import type { ModelProgress } from '../../../shared/ipc.ts'
+
+for (const scenario of ['success', 'bad-hash', 'cancel'] as const) {
+  test(`多文件纠错模型 ${scenario}：校验全部文件后安装，失败或取消保留旧模型`, async t => {
+    const root = await mkdtemp(join(tmpdir(), 'vocal-correction-download-'))
+    t.after(() => rm(root, { recursive: true, force: true }))
+    const old = join(root, 'model')
+    await mkdir(old); await writeFile(join(old, 'model.onnx'), 'previous-model')
+    const data = Buffer.from('new-model')
+    const vocab = Buffer.from('vocab')
+    const assets = [data, vocab].map((bytes, i) => ({ file: i ? 'vocab.txt' : 'model.onnx',
+      url: `https://example.invalid/${i}`, bytes: bytes.length,
+      sha256: createHash('sha256').update(scenario === 'bad-hash' && i === 1 ? 'wrong' : bytes).digest('hex') }))
+    t.mock.method(globalThis, 'fetch', async (input: Parameters<typeof fetch>[0]) => new Response(String(input).endsWith('/0') ? data : vocab))
+    const events: ModelProgress[] = []
+    const downloader = new ModelDownloader(root, p => {
+      events.push(p)
+      if (p.phase === 'done' || p.phase === 'error' || p.phase === 'cancelled') assert.equal(downloader.isDownloading('test-correction'), false)
+      if (scenario === 'cancel' && p.received > 0) downloader.cancel('test-correction')
+    })
+    await downloader.download({ id: 'test-correction', name: '', kind: 'correction-bert', langs: '', note: '',
+      dir: 'model', url: assets[0]!.url, approxMB: 1, archive: 'files', files: { model: 'model.onnx', vocab: 'vocab.txt' }, prune: [], downloads: assets })
+    assert.equal(events.at(-1)?.phase, scenario === 'success' ? 'done' : scenario === 'cancel' ? 'cancelled' : 'error')
+    assert.equal(await readFile(join(old, 'model.onnx'), 'utf8'), scenario === 'success' ? 'new-model' : 'previous-model')
+    assert.deepEqual(await readdir(root), ['model'])
+  })
+}
 
 test('响应立即到达时，进度统计不能吃掉尚未写入文件的开头', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'vocal-download-test-'))

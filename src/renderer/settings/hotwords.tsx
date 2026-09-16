@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AppConfig, HotwordCatalogStatus } from '@shared/ipc'
+import type { AppConfig, ConfigPatch, HotwordCatalogStatus } from '@shared/ipc'
 import { findModel } from '@shared/modelRegistry'
 import { Button, Note, Row, Section, Toggle, Textarea } from './ui'
 
@@ -18,7 +18,7 @@ export function useHotwordCatalog(): HotwordCatalogStatus | null {
 }
 
 export function HotwordsSection({ cfg, patch }: {
-  cfg: AppConfig; patch: (value: Partial<AppConfig>) => Promise<void>
+  cfg: AppConfig; patch: (value: ConfigPatch) => Promise<void>
 }): React.ReactElement {
   const status = useHotwordCatalog()
   const [busy, setBusy] = useState(false)
@@ -61,7 +61,7 @@ export function HotwordsSection({ cfg, patch }: {
           <Toggle checked={prefs.autoUpdate} disabled={!prefs.enabled} ariaLabel="自动更新词库"
             onChange={autoUpdate => patch({ networkHotwords: { ...prefs, autoUpdate } })} />
         </Row>
-        <Row label={status ? `${status.wordCount.toLocaleString()} 个词 · ${status.updatedAt}` : '词库'}>
+        <Row wideLabel label={status ? `${status.wordCount.toLocaleString()} 个词 · ${status.updatedAt}` : '词库'}>
           <Button size="sm" disabled={busy || status?.state === 'checking'} onClick={() => void update()}>
             {busy || status?.state === 'checking' ? '正在更新…' : '更新词库'}
           </Button>

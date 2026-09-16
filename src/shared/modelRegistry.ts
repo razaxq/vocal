@@ -30,9 +30,11 @@ export interface ModelEntry {
    * 而 sherpa 的热词编码要的是文本词表。解压后现场生成一份。
    */
   generateBpeVocab?: { from: string; to: string }
+  downloads?: Array<{ file: string; url: string; bytes: number; sha256: string }>
+  correctionMode?: 'csc' | 'mlm'
 }
 
-export type ModelSlot = 'streaming' | 'offline' | 'punct' | 'vad'
+export type ModelSlot = 'streaming' | 'offline' | 'punct' | 'vad' | 'correction'
 
 const REG = registry as unknown as Record<ModelSlot, ModelEntry[]>
 
@@ -54,8 +56,9 @@ export function resolveModel(slot: ModelSlot, id: string): ModelEntry {
 }
 
 export const DEFAULT_MODEL_IDS = {
-  streaming: 'zipformer-zh',
-  offline: 'zipformer-zh-en',
+  streaming: 'none',
+  offline: 'paraformer-yue-offline',
+  correction: 'macbert4csc',
   punct: 'ct-transformer',
   vad: 'silero'
 } as const

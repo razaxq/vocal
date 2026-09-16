@@ -10,8 +10,8 @@
  *
  * 所有颜色走 styles.css 的 token，不写死、不用 dark: 变体。
  */
-import { useEffect, useState } from 'react'
-import type { AppConfig, HistoryStats } from '@shared/ipc'
+import { useEffect, useRef, useState } from 'react'
+import type { AppConfig, ConfigPatch, HistoryStats } from '@shared/ipc'
 import type { Transcript } from '@shared/types'
 import { MODEL_NONE } from '@shared/modelRegistry'
 import {
@@ -49,9 +49,17 @@ export function Settings(): React.ReactElement {
   const [cfg, setCfg] = useState<AppConfig | null>(null)
   const [tab, setTab] = useState<Tab>('hotkey')
   const updateStatus = useUpdateStatus()
+  const configRevision = useRef(0)
+  const pendingWrites = useRef(0)
 
   useEffect(() => {
-    const refresh = (): void => { void window.vocal.getConfig().then(setCfg) }
+    const refresh = (): void => {
+      if (pendingWrites.current) return
+      const revision = ++configRevision.current
+      void window.vocal.getConfig().then(value => {
+        if (revision === configRevision.current) setCfg(value)
+      })
+    }
     refresh()
     // 从 Windows 启动应用设置切回来时，刷新实际的开机自启状态。
     window.addEventListener('focus', refresh)
@@ -68,8 +76,17 @@ export function Settings(): React.ReactElement {
   // 主进程要求跳页签（首次启动没模型时跳「识别」）
   useEffect(() => window.vocal.onGotoTab((t) => setTab(t as Tab)), [])
 
-  const patch = async (p: Partial<AppConfig>): Promise<void> => {
-    setCfg(await window.vocal.setConfig(p))
+  const patch = async (p: ConfigPatch): Promise<void> => {
+    const revision = ++configRevision.current
+    pendingWrites.current++
+    try {
+      const value = await window.vocal.setConfig(p)
+      if (revision === configRevision.current) setCfg(value)
+    } catch (error) {
+      const value = await window.vocal.getConfig()
+      if (revision === configRevision.current) setCfg(value)
+      throw error
+    } finally { pendingWrites.current-- }
   }
 
   if (!cfg) {
@@ -128,7 +145,7 @@ export function Settings(): React.ReactElement {
   )
 }
 
-type TabProps = { cfg: AppConfig; patch: (p: Partial<AppConfig>) => Promise<void> }
+type TabProps = { cfg: AppConfig; patch: (p: ConfigPatch) => Promise<void> }
 
 /* ============================================================ */
 
@@ -250,7 +267,7 @@ function AsrTab({ cfg, patch }: TabProps): React.ReactElement {
       </Section>
 
       <Section title="内存">
-        <Row label="空闲释放内存" hint="0 表示不释放；释放后首次识别稍慢">
+        <Row wideLabel label="空闲释放内存" hint="0 表示不释放；释放后首次识别稍慢">
           <Num
             value={cfg.asr.idleUnloadMin}
             min={0}
@@ -278,6 +295,13 @@ function AsrTab({ cfg, patch }: TabProps): React.ReactElement {
       />
 
       <ModelGroup
+        slot="correction"
+        title="同音纠错模型"
+        hint="本地检查最终文字，可选下载；仅启用所选模型"
+        cfg={cfg} patch={patch} status={status} progress={progress} asrStatus={asrStatus} allowNone
+      />
+
+      <ModelGroup
         slot="punct"
         title="标点模型"
         hint="自动补全标点，需下载"
@@ -285,6 +309,9 @@ function AsrTab({ cfg, patch }: TabProps): React.ReactElement {
       />
 
       <HotwordsSection cfg={cfg} patch={patch} />
+      {cfg.models.correction !== MODEL_NONE && !cfg.networkHotwords.enabled && (
+        <Note>开启雾凇词库后，纠错模型才能筛选同音词。</Note>
+      )}
     </Page>
   )
 }
@@ -376,7 +403,7 @@ function PolishTab({ cfg, patch }: TabProps): React.ReactElement {
             onChange={(n) => patch({ consolidation: { ...cfg.consolidation, minChars: n } })}
           />
         </Row>
-        <Row label="自动替换上限" hint="超出时仅保存结果，不替换已输入文字">
+        <Row wideLabel label="自动替换上限" hint="超出时仅保存结果，不替换已输入文字">
           <Num
             value={cfg.consolidation.maxReplaceChars}
             suffix="字"

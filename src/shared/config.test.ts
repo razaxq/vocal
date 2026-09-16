@@ -2,13 +2,42 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { buildSync } from 'esbuild'
 import { runInNewContext } from 'node:vm'
-import type { configSchema as ConfigSchema } from './config'
+import type { configSchema as ConfigSchema, applyConfigPatch as ApplyConfigPatch } from './config'
+import type { AppConfig } from './ipc'
 
-const module = { exports: {} as { configSchema: typeof ConfigSchema } }
+const module = { exports: {} as { configSchema: typeof ConfigSchema; applyConfigPatch: typeof ApplyConfigPatch } }
 runInNewContext(buildSync({ entryPoints: ['src/shared/config.ts'], bundle: true,
   platform: 'node', format: 'cjs', write: false }).outputFiles[0]!.text,
 { module, exports: module.exports })
 const { configSchema } = module.exports
+
+test('交错保存三个模型槽位不覆盖前一个选择，快速反选使用最后一次选择', () => {
+  const { applyConfigPatch } = module.exports
+  let cfg: AppConfig = configSchema.parse({})
+  cfg = applyConfigPatch(cfg, { models: { streaming: 'paraformer-zh-en' } })
+  cfg = applyConfigPatch(cfg, { models: { correction: 'macbert4csc' } })
+  cfg = applyConfigPatch(cfg, { models: { offline: 'none' } })
+  assert.equal(cfg.models.streaming, 'paraformer-zh-en')
+  assert.equal(cfg.models.correction, 'macbert4csc')
+  assert.equal(cfg.models.offline, 'none')
+  cfg = applyConfigPatch(cfg, { models: { correction: 'none' } })
+  assert.equal(cfg.models.correction, 'none')
+  assert.throws(() => applyConfigPatch(cfg, { models: { streaming: 'none' } }), /至少保留一种/)
+  assert.equal(cfg.models.streaming, 'paraformer-zh-en')
+})
+
+test('默认关闭流式并选择 Paraformer 与 MacBERT，保留已有模型选择', () => {
+  const defaults = configSchema.parse({}).models
+  assert.equal(defaults.streaming, 'none')
+  assert.equal(defaults.offline, 'paraformer-yue-offline')
+  assert.equal(defaults.correction, 'macbert4csc')
+  const existing = configSchema.parse({ models: { streaming: 'zipformer-zh', offline: 'zipformer-zh-en' } }).models
+  assert.equal(existing.streaming, 'zipformer-zh')
+  assert.equal(existing.offline, 'zipformer-zh-en')
+  assert.equal(existing.correction, 'macbert4csc')
+  for (const correction of ['none', 'macbert4csc', 'bert-chinese-int8']) assert.equal(configSchema.parse({ models: { correction } }).models.correction, correction)
+  assert.equal(configSchema.parse({ models: { correction: 'retired' } }).models.correction, 'macbert4csc')
+})
 
 test('自动更新默认开启，保留用户关闭的选择', () => {
   assert.equal(configSchema.parse({}).update.auto, true)

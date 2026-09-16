@@ -5,7 +5,7 @@ import {
 import { join, dirname } from 'node:path'
 import { mkdirSync, accessSync, readdirSync, readFileSync, constants } from 'node:fs'
 import { CH } from '@shared/ipc'
-import type { AppConfig, AsrStatus } from '@shared/ipc'
+import type { AppConfig, ConfigPatch, AsrStatus } from '@shared/ipc'
 import type { SessionState, InjectionTarget, CleanupConfig } from '@shared/types'
 import type { InstalledModel, ModelProgress, AppStats, ProcStat, UpdateStatus } from '@shared/ipc'
 import { ConfigService } from './services/config'
@@ -14,6 +14,7 @@ import { LlmService } from './services/llm'
 import { TextInjector } from './services/injector'
 import { HotkeyService } from './services/hotkey'
 import { AsrEngine } from './services/asr/engine'
+import { ModelReloadQueue } from './services/asr/modelReloadQueue'
 import { checkModels, resolveModelPaths, modelsRoot, modelInstallInfo } from './services/asr/models'
 import { modelsOf, deriveProfile, MODEL_NONE } from '@shared/modelRegistry'
 import { ModelDownloader } from './services/asr/downloader'
@@ -25,7 +26,7 @@ import { openSettingsWindow } from './windows/settingsWindow'
 import { UpdaterService } from './services/updater'
 import { APP_ID } from './windows/appIdentity'
 import { StartupService, STARTUP_ARG } from './services/startup'
-import { configSchema } from '@shared/config'
+import { applyConfigPatch } from '@shared/config'
 import { HotwordCatalogService } from './services/hotwordCatalog'
 import { mergeHotwords, parseCatalog } from '@shared/hotwordCatalog'
 
@@ -205,7 +206,7 @@ async function bootstrap(): Promise<void> {
     onState: (s: SessionState) => {
       toPanel(CH.stateChanged, s)
       // 说话期间请求的重载攒到这里做，不打断正在进行的一次输入
-      if (s === 'idle' && reloadPending) void reloadAsr(config.get())
+      if (s === 'idle' && reloadQueue.pending) void reloadAsr(config.get())
       else if ((s === 'idle' || s === 'error') && hotwordsPending) applyHotwords()
       if (s === 'idle' || s === 'error') void updater?.resumeAutoUpdate()
     },
@@ -245,6 +246,21 @@ async function bootstrap(): Promise<void> {
     }
   })
 
+  reloadQueue = new ModelReloadQueue({
+    getConfig,
+    blocked: () => modelMaintenance || (session.current !== 'idle' && session.current !== 'error'),
+    check: cfg => checkModels(cfg.models),
+    downloading: cfg => [...Object.values(cfg.models), 'ct-transformer'].some(id => downloader?.isDownloading(id)),
+    publish: publishAsrStatus,
+    load: async cfg => {
+      await asr.reload(resolveModelPaths(cfg.models), deriveProfile(cfg.models), cfg.asr.endpointSilenceMs, cfg.asr.idleUnloadMin)
+      hotwordsPending = false
+      asr.updateHotwords(recognitionHotwords(config.get()))
+      asr.updateDictionary(config.get().networkHotwords.enabled ? hotwordCatalog.data : undefined)
+      asr.updateCleanup(cleanupConfigOf(config.get()))
+    }
+  })
+
   if (status.ready) {
     asr.start().catch((e) => {
       toPanel(CH.toast, { level: 'error', text: `ASR 启动失败：${e instanceof Error ? e.message : String(e)}` })
@@ -273,6 +289,10 @@ async function bootstrap(): Promise<void> {
 
   downloader = new ModelDownloader(modelsRoot(), (p: ModelProgress) => {
     broadcast(CH.modelsProgress, p)
+    if (p.phase === 'queued' || p.phase === 'done' || p.phase === 'error' || p.phase === 'cancelled') {
+      const selected = config.get().models
+      if (Object.values(selected).includes(p.id) || p.id === 'ct-transformer') void reloadAsr(config.get())
+    }
   })
 
   // 两种发行方式共用检查和通知；安装方式交给更新服务处理。
@@ -299,9 +319,9 @@ function syncStartupConfig(): AppConfig {
 
 function registerIpc(injector: TextInjector): void {
   ipcMain.handle(CH.configGet, () => syncStartupConfig())
-  ipcMain.handle(CH.configSet, (_e, patch: Partial<AppConfig>) => {
+  ipcMain.handle(CH.configSet, (_e, patch: ConfigPatch) => {
     const before = config.get()
-    const candidate = configSchema.parse({ ...before, ...patch })
+    const candidate = applyConfigPatch(before, patch)
     if (before.ui.launchAtLogin !== candidate.ui.launchAtLogin) {
       // 系统确认成功后才保存，失败时界面保留原来的开关状态。
       startup.setEnabled(candidate.ui.launchAtLogin)
@@ -326,7 +346,7 @@ function registerIpc(injector: TextInjector): void {
       before.asr.endpointSilenceMs !== next.asr.endpointSilenceMs
     ) {
       const targets: Partial<AppConfig['models']> = {}
-      for (const slot of ['streaming', 'offline'] as const) {
+      for (const slot of ['streaming', 'offline', 'correction'] as const) {
         if (before.models[slot] !== next.models[slot]) targets[slot] = next.models[slot]
       }
       void reloadAsr(next, Object.keys(targets).length ? targets : next.models)
@@ -356,7 +376,7 @@ function registerIpc(injector: TextInjector): void {
   ipcMain.handle(CH.modelsStatus, () => {
     const c = config.get()
     const installed: Record<string, InstalledModel> = {}
-    for (const slot of ['streaming', 'offline', 'punct', 'vad'] as const) {
+    for (const slot of ['streaming', 'offline', 'punct', 'vad', 'correction'] as const) {
       for (const m of modelsOf(slot)) {
         installed[m.id] = { id: m.id, ...modelInstallInfo(m) }
       }
@@ -364,7 +384,7 @@ function registerIpc(injector: TextInjector): void {
     return {
       ...checkModels(c.models),
       installed,
-      active: { streaming: c.models.streaming, offline: c.models.offline },
+      active: { ...c.models },
       asr: asrStatus,
       dataDir: dataDir.dir,
       portable: dataDir.portable
@@ -381,10 +401,10 @@ function registerIpc(injector: TextInjector): void {
     const entry = findAnyModel(id)
     if (!entry) throw new Error('找不到这个模型')
     if (modelMaintenance) throw new Error('有模型正在处理，请稍后重试')
-    if (asrReloading) throw new Error('模型正在切换，请稍后重试')
+    if (reloadQueue.running) throw new Error('模型正在切换，请稍后重试')
     if (downloader.isDownloading(id)) throw new Error('请先取消下载，再删除模型')
     const selected = config.get().models
-    const inUse = selected.streaming === id || selected.offline === id || entry.kind === 'punct-ct-transformer'
+    const inUse = selected.streaming === id || selected.offline === id || selected.correction === id || entry.kind === 'punct-ct-transformer'
     if (inUse && session.current !== 'idle' && session.current !== 'error') {
       throw new Error('请先结束当前语音输入，再删除正在使用的模型')
     }
@@ -396,7 +416,7 @@ function registerIpc(injector: TextInjector): void {
     } finally {
       modelMaintenance = false
       broadcast(CH.modelsChanged)
-      if (inUse || reloadPending) await reloadAsr(config.get())
+      if (inUse || reloadQueue.pending) await reloadAsr(config.get())
     }
   })
   ipcMain.handle(CH.modelsOpenDir, () => shell.openPath(modelsRoot()))
@@ -451,51 +471,10 @@ function registerIpc(injector: TextInjector): void {
  *
  * 正在说话时不动：等这次会话结束再说，否则音频流会断在半截。
  */
-let reloadPending = false
-let asrReloading = false
-let pendingReloadTargets: Partial<AppConfig['models']> = {}
-async function reloadAsr(cfg: AppConfig, targets?: Partial<AppConfig['models']>): Promise<void> {
-  pendingReloadTargets = { ...pendingReloadTargets, ...(targets ?? (Object.keys(pendingReloadTargets).length ? {} : cfg.models)) }
-  if (asrReloading || modelMaintenance || (session.current !== 'idle' && session.current !== 'error')) {
-    reloadPending = true
-    publishAsrStatus({ state: 'loading', targets: { ...(asrReloading ? asrStatus?.targets : {}), ...pendingReloadTargets },
-      message: asrReloading ? '正在切换模型' : '当前任务结束后切换' })
-    return
-  }
-  reloadPending = false
-  const currentTargets = pendingReloadTargets
-  pendingReloadTargets = {}
-  const status = checkModels(cfg.models)
-  if (!status.ready) {
-    publishAsrStatus({ state: 'error', targets: currentTargets, message: `缺少：${status.missing.join('、')}` })
-    return
-  }
-  asrReloading = true
-  publishAsrStatus({ state: 'loading', targets: currentTargets })
-  try {
-    await asr.reload(
-      resolveModelPaths(cfg.models),
-      deriveProfile(cfg.models),
-      cfg.asr.endpointSilenceMs,
-      cfg.asr.idleUnloadMin
-    )
-    hotwordsPending = false
-    asr.updateHotwords(recognitionHotwords(config.get()))
-    asr.updateDictionary(config.get().networkHotwords.enabled ? hotwordCatalog.data : undefined)
-    asr.updateCleanup(cleanupConfigOf(config.get()))
-    if (!reloadPending) publishAsrStatus({ state: 'ready', targets: currentTargets })
-  } catch (e) {
-    if (!reloadPending) publishAsrStatus({
-      state: 'error',
-      targets: currentTargets,
-      message: e instanceof Error ? e.message : String(e)
-    })
-  } finally {
-    asrReloading = false
-    if (reloadPending && !modelMaintenance && (session.current === 'idle' || session.current === 'error')) {
-      void reloadAsr(config.get())
-    }
-  }
+let reloadQueue: ModelReloadQueue
+function reloadAsr(cfg: AppConfig, targets?: Partial<AppConfig['models']>): Promise<void> {
+  return targets ? reloadQueue.request(targets)
+    : reloadQueue.pending ? reloadQueue.resume() : reloadQueue.request(cfg.models)
 }
 
 /** 进程类型名转成人话。getAppMetrics 给的是 Browser/Tab/Utility 这种。 */
@@ -504,6 +483,7 @@ function procLabel(m: Electron.ProcessMetric): string {
   const name = m.name ?? m.serviceName ?? ''
   if (name.includes('asr-stream')) return '流式识别'
   if (name.includes('asr-finalize')) return '定稿识别'
+  if (name.includes('vocal-correction')) return '同音纠错'
   if (m.type === 'Tab') return '窗口界面'
   if (m.type === 'GPU') return '图形渲染'
   return name || m.type
@@ -511,7 +491,7 @@ function procLabel(m: Electron.ProcessMetric): string {
 
 /** 在四个槽位里按 id 找模型。 */
 function findAnyModel(id: string) {
-  for (const slot of ['streaming', 'offline', 'punct', 'vad'] as const) {
+  for (const slot of ['streaming', 'offline', 'punct', 'vad', 'correction'] as const) {
     const m = modelsOf(slot).find((x) => x.id === id)
     if (m) return m
   }

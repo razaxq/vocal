@@ -14,6 +14,9 @@ files:
   - out/**/*
   - package.json
   - '!**/*.map'
+  - '!node_modules/onnxruntime-node/bin/napi-v6/darwin/**'
+  - '!node_modules/onnxruntime-node/bin/napi-v6/linux/**'
+  - '!node_modules/onnxruntime-node/bin/napi-v6/win32/arm64/**'
 
 # 模型不打进安装包：首次启动时按需下载到 userData，
 # 否则安装包会膨胀到 500MB+ 且无法增量更新模型。
@@ -37,6 +40,7 @@ extraResources:
     to: update-portable.ps1
 
 asarUnpack:
+  - '**/node_modules/onnxruntime-node/**'
   - '**/node_modules/koffi/**'
   - '**/node_modules/@koromix/**'          # koffi 的平台二进制包
   - '**/node_modules/uiohook-napi/**'

@@ -119,6 +119,7 @@ export interface ModelPaths {
   offline: OfflineModelPaths
   punct: string
   vad: string
+  correction?: { model: string; vocab: string; mode: 'csc' | 'mlm' }
 }
 
 /** 音频采集参数。固定 16k 单声道，直接喂模型，不做二次重采样。 */
@@ -251,3 +252,10 @@ export interface CleanupConfig {
   protect: string[]
   extraFillers: string[]
 }
+
+export type CorrectionCommand =
+  | { type: 'init'; model: NonNullable<ModelPaths['correction']>; hotwords: RecognitionHotword[]; dictionary?: HotwordCatalog }
+  | { type: 'correct'; result: Extract<FinalizeEvent, { type: 'finalized' }> }
+  | { type: 'hotwords:update'; hotwords: RecognitionHotword[] }
+  | { type: 'dictionary:update'; dictionary?: HotwordCatalog }
+  | { type: 'shutdown' }

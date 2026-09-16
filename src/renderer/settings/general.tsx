@@ -1,14 +1,14 @@
 import { useState } from 'react'
-import type { AppConfig } from '@shared/ipc'
+import type { AppConfig, ConfigPatch } from '@shared/ipc'
 import { Page, Section, Row, Toggle, Note } from './ui'
 
 export function GeneralTab({ cfg, patch }: {
   cfg: AppConfig
-  patch: (p: Partial<AppConfig>) => Promise<void>
+  patch: (p: ConfigPatch) => Promise<void>
 }): React.ReactElement {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const save = async (value: Partial<AppConfig>): Promise<void> => {
+  const save = async (value: ConfigPatch): Promise<void> => {
     if (saving) return
     setSaving(true)
     setError('')

@@ -6,7 +6,7 @@
  * 「不使用」是列表里的一行，不是另一个开关：不用这一层，就选那一行。
  */
 import { useEffect, useState, useCallback, useRef } from 'react'
-import type { AppConfig, ModelStatusInfo, ModelProgress, AsrStatus } from '@shared/ipc'
+import type { AppConfig, ConfigPatch, ModelStatusInfo, ModelProgress, AsrStatus } from '@shared/ipc'
 import { modelsOf, MODEL_NONE, type ModelEntry } from '@shared/modelRegistry'
 import { Section, Button, ErrorDetails } from './ui'
 
@@ -68,11 +68,11 @@ export function MissingModelsNotice({ status }: {
 }
 
 export function ModelGroup({ slot, title, hint, cfg, patch, status, progress, fixed, allowNone, asrStatus }: {
-  slot: 'streaming' | 'offline' | 'punct'
+  slot: 'streaming' | 'offline' | 'punct' | 'correction'
   title: string
   hint?: string
   cfg: AppConfig
-  patch: (p: Partial<AppConfig>) => Promise<void>
+  patch: (p: ConfigPatch) => Promise<void>
   status: ModelStatusInfo | null
   progress: Record<string, ModelProgress>
   /** 这个槽位没得选，只有一个必需模型 */
@@ -86,22 +86,27 @@ export function ModelGroup({ slot, title, hint, cfg, patch, status, progress, fi
   const target = slot !== 'punct' ? asrStatus?.targets?.[slot] : undefined
   const switching = asrStatus?.state === 'loading'
   const error = asrStatus?.state === 'error' ? asrStatus.message : undefined
+  const [selectionError, setSelectionError] = useState('')
+  const selectionRevision = useRef(0)
 
   /**
    * 选中即启用；没下载就顺手开始下 —— 这两件事从来不会分开做。
    * 固定槽位（标点）没得选，但点一下仍然要能触发下载，否则缺了就没有入口。
    */
-  const select = (id: string): void => {
-    if (id === MODEL_NONE) {
-      if (!fixed && id !== current) void patch({ models: { ...cfg.models, [slot]: id } })
-      return
+  const select = async (id: string): Promise<void> => {
+    const revision = ++selectionRevision.current
+    setSelectionError('')
+    try {
+      if (!fixed && slot !== 'punct') await patch({ models: { [slot]: id } })
+      if (id !== MODEL_NONE && !status?.installed[id]?.installed) await window.vocal.downloadModel(id)
+    } catch (e) {
+      if (revision === selectionRevision.current) setSelectionError(e instanceof Error ? e.message : String(e))
     }
-    if (!fixed && id !== current) void patch({ models: { ...cfg.models, [slot]: id } })
-    if (!status?.installed[id]?.installed) void window.vocal.downloadModel(id)
   }
 
   return (
     <Section title={title} hint={hint}>
+      {selectionError && <ErrorDetails title="模型选择未保存" detail={selectionError} />}
       {/*
         行与行之间靠间距分开，不用横线。
         之前是「上下包边 + divide-y」，选中行的绿色底就被那两条直线切成方角 ——
@@ -115,7 +120,7 @@ export function ModelGroup({ slot, title, hint, cfg, patch, status, progress, fi
             disabled={!allowNone}
             name="不使用"
             sub={allowNone ? undefined : '至少保留一种识别模型'}
-            onSelect={() => allowNone && select(MODEL_NONE)}
+            onSelect={() => { if (allowNone) void select(MODEL_NONE) }}
             right={target === MODEL_NONE && switching ? <LoadingIcon label={asrStatus?.message ?? '正在切换模型'} /> : undefined}
             below={target === MODEL_NONE && error ? <div className="mt-2 pl-[26px]"><ErrorDetails title="模型切换失败" detail={error} /></div> : undefined}
           />
@@ -131,7 +136,7 @@ export function ModelGroup({ slot, title, hint, cfg, patch, status, progress, fi
             switching={m.id === target && switching}
             switchLabel={asrStatus?.message}
             switchError={m.id === target ? error : undefined}
-            onSelect={() => select(m.id)}
+            onSelect={() => void select(m.id)}
           />
         ))}
       </div>

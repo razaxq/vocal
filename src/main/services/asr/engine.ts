@@ -1,10 +1,11 @@
 /**
- * ASR 引擎门面：管两个工作进程，对上层只暴露「实时文本」和「某段定稿了」。
+ * ASR 引擎门面：管理识别与可选纠错进程，对上层暴露实时文本和最终段落。
  *
  * 进程布局：
  *   主进程            持有音频缓冲，按 endpoint 切段
  *     ├─ stream       OnlineRecognizer，只出实时文本和句子边界
- *     └─ finalize     OfflineRecognizer + 标点 + 规则清洗
+ *     ├─ finalize     OfflineRecognizer + 标点 + 规则清洗
+ *     └─ correction   可选本地同音纠错，完成后才交给上层输出
  *
  * 两个工作进程完全并行，互不阻塞。定稿慢不会拖住实时显示。
  */
@@ -12,7 +13,7 @@ import { utilityProcess, app, type UtilityProcess } from 'electron'
 import { join } from 'node:path'
 import type {
   StreamCommand, StreamEvent, FinalizeCommand, FinalizeEvent,
-  ModelPaths, AsrProfile, CleanupConfig
+  ModelPaths, AsrProfile, CleanupConfig, CorrectionCommand
 } from '@shared/types'
 import { SessionAudioBuffer } from './audioBuffer'
 import { SilenceSegmenter } from './silenceSegmenter'
@@ -36,6 +37,9 @@ const COMPACT_EVERY = 16000 * 60
 export class AsrEngine {
   private stream: UtilityProcess | null = null
   private finalize: UtilityProcess | null = null
+  private correction: UtilityProcess | null = null
+  private correcting = new Map<number, Extract<FinalizeEvent, { type: 'finalized' }>>()
+  private correctionTimer: NodeJS.Timeout | null = null
   private ready: Promise<void> | null = null
   private restarts = 0
   /** dispose() 期间工作进程退出是预期行为，别触发崩溃重启 */
@@ -88,11 +92,41 @@ export class AsrEngine {
     this.ready = new Promise<void>((resolve, reject) => {
       let streamReady = !needStream
       let finalizeReady = false
+      let correctionReady = !this.models.correction
       const maybeDone = (): void => {
-        if (streamReady && finalizeReady) { this.restarts = 0; resolve() }
+        if (streamReady && finalizeReady && correctionReady) { this.restarts = 0; clearTimeout(timer); resolve() }
       }
       const timer = setTimeout(() => reject(new Error('ASR 进程启动超时（45s）')), 45_000)
-      const clearIfDone = (): void => { if (streamReady && finalizeReady) clearTimeout(timer) }
+      const clearIfDone = (): void => { if (streamReady && finalizeReady && correctionReady) clearTimeout(timer) }
+
+      if (this.models.correction) {
+        const cp = utilityProcess.fork(this.entry('correction'), [], { serviceName: 'vocal-correction', stdio: 'inherit' })
+        this.correction = cp
+        const correctionStartupTimer = setTimeout(() => cp.kill(), 15_000)
+        cp.on('message', (event: FinalizeEvent) => {
+          if (event.type === 'ready') { clearTimeout(correctionStartupTimer); correctionReady = true; maybeDone(); return }
+          if (event.type === 'finalized') {
+            const pending = this.correcting.get(event.segment)
+            if (!pending || pending.sessionId !== event.sessionId) return
+            this.correcting.delete(event.segment)
+            this.watchCorrection()
+            this.deliverFinal(event)
+          } else if (event.type === 'error') this.events.onError(event.message, false)
+        })
+        cp.on('exit', () => {
+          clearTimeout(correctionStartupTimer)
+          if (this.correction !== cp) return
+          this.correction = null
+          if (this.disposing) return
+          correctionReady = true; maybeDone()
+          this.events.onError('同音纠错进程已退出，本次保留识别结果；切换纠错模型可重新加载', false)
+          const pending = [...this.correcting.values()]
+          this.correcting.clear()
+          this.watchCorrection()
+          for (const result of pending) this.deliverFinal(result)
+        })
+        cp.postMessage({ type: 'init', model: this.models.correction, hotwords: this.hotwords, dictionary: this.dictionary } satisfies CorrectionCommand)
+      }
 
       if (needStream) {
         const sp = utilityProcess.fork(this.entry('stream'), [], {
@@ -133,7 +167,7 @@ export class AsrEngine {
         } satisfies FinalizeCommand)
       }
 
-      if (streamReady && finalizeReady) { clearTimeout(timer); resolve() }
+      if (streamReady && finalizeReady && correctionReady) { clearTimeout(timer); resolve() }
     })
 
     return this.ready
@@ -193,6 +227,8 @@ export class AsrEngine {
     this.stopped = false
     this.audio.reset()
     this.outstanding.clear()
+    this.correcting.clear()
+    this.watchCorrection()
     this.expectedSegments = null
     this.lastCompactAt = 0
 
@@ -266,6 +302,8 @@ export class AsrEngine {
 
   /** 放弃当前会话，不再派发定稿。 */
   abortSession(): void {
+    this.correcting.clear()
+    this.watchCorrection()
     this.stopped = true
     this.sessionId = null
     this.outstanding.clear()
@@ -279,11 +317,13 @@ export class AsrEngine {
     if (JSON.stringify(this.hotwords) === JSON.stringify(hotwords)) return
     this.hotwords = hotwords
     this.finalize?.postMessage({ type: 'hotwords:update', hotwords } satisfies FinalizeCommand)
+    this.correction?.postMessage({ type: 'hotwords:update', hotwords } satisfies CorrectionCommand)
   }
 
   updateDictionary(dictionary?: HotwordCatalog): void {
     if (this.dictionary === dictionary) return
     this.dictionary = dictionary
+    this.correction?.postMessage({ type: 'dictionary:update', dictionary } satisfies CorrectionCommand)
     if (this.profile !== 'streaming-only' && this.models.offline.kind === 'offline-transducer') {
       this.finalize?.postMessage({ type: 'dictionary:update', dictionary } satisfies FinalizeCommand)
     }
@@ -371,19 +411,35 @@ export class AsrEngine {
     switch (e.type) {
       case 'finalized':
         if (e.sessionId !== this.sessionId) return
-        this.outstanding.delete(e.segment)
-        this.events.onSegment(e.segment, e.text, {
-          cleanedChars: e.cleanedChars,
-          latencyMs: e.latencyMs,
-          fellBack: e.fellBack
-        })
-        this.checkComplete()
+        if (this.correction) {
+          this.correcting.set(e.segment, e)
+          if (!this.correctionTimer) this.watchCorrection()
+          try { this.correction.postMessage({ type: 'correct', result: e } satisfies CorrectionCommand) }
+          catch {
+            this.correcting.delete(e.segment)
+            this.watchCorrection()
+            this.deliverFinal(e)
+          }
+        } else this.deliverFinal(e)
         break
 
       case 'error':
         this.events.onError(e.message, e.fatal)
         break
     }
+  }
+
+  private deliverFinal(e: Extract<FinalizeEvent, { type: 'finalized' }>): void {
+    if (e.sessionId !== this.sessionId) return
+    this.outstanding.delete(e.segment)
+    this.events.onSegment(e.segment, e.text, { cleanedChars: e.cleanedChars, latencyMs: e.latencyMs, fellBack: e.fellBack })
+    this.checkComplete()
+  }
+
+  private watchCorrection(): void {
+    if (this.correctionTimer) clearTimeout(this.correctionTimer)
+    this.correctionTimer = this.correcting.size ? setTimeout(() => this.correction?.kill(), 15_000) : null
+    this.correctionTimer?.unref?.()
   }
 
   private checkComplete(): void {
@@ -404,8 +460,10 @@ export class AsrEngine {
 
   async dispose(): Promise<void> {
     this.disposing = true
+    if (this.correctionTimer) clearTimeout(this.correctionTimer)
+    this.correctionTimer = null
     this.cancelIdleTimer()
-    const workers = [this.stream, this.finalize].filter((p): p is UtilityProcess => p !== null)
+    const workers = [this.stream, this.finalize, this.correction].filter((p): p is UtilityProcess => p !== null)
     try {
       await Promise.all(workers.map((worker) => new Promise<void>((resolve, reject) => {
         if (worker.pid === undefined) { resolve(); return }
@@ -420,6 +478,8 @@ export class AsrEngine {
       })))
       this.stream = null
       this.finalize = null
+      this.correction = null
+      this.correcting.clear()
       this.ready = null
     } finally {
       this.disposing = false

@@ -7,6 +7,14 @@ export class HotwordIndex {
   private byReading = new Map<string, number | number[]>()
   private maxSyllables = 2
 
+  /** 给纠错模型提供整词同音候选；只负责召回，不决定替换。 */
+  homophones(word: string): string[] {
+    const reading = pinyin(word, { toneType: 'none', type: 'array' }).join(' ').replaceAll('ü', 'v')
+    const found = this.byReading.get(reading)
+    const ids = found === undefined ? [] : typeof found === 'number' ? [found] : found
+    return ids.map(id => this.words[id]!).filter(w => w.length === word.length && w !== word).slice(0, 16)
+  }
+
   constructor(catalog: Pick<HotwordCatalog, 'words' | 'readings'>) {
     this.words = catalog.words
     catalog.readings.forEach((readings, i) => {

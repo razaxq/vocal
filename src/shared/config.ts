@@ -1,6 +1,6 @@
 /** 配置的默认值与校验。主进程用 zod 校验后写入 electron-store。 */
 import { z } from 'zod'
-import type { AppConfig } from './ipc'
+import type { AppConfig, ConfigPatch } from './ipc'
 import { ALL_RECORDABLE_KEYS, DEFAULT_HOTKEY_KEY, migrateHotkeyConfig } from './hotkeys'
 import { STREAMING_IDS, OFFLINE_IDS, DEFAULT_MODEL_IDS, MODEL_NONE } from './modelRegistry'
 
@@ -54,7 +54,9 @@ export const configSchema = z.object({
     streaming: z.enum([MODEL_NONE, ...STREAMING_IDS] as [string, ...string[]])
       .catch(DEFAULT_MODEL_IDS.streaming).default(DEFAULT_MODEL_IDS.streaming),
     offline: z.enum([MODEL_NONE, ...OFFLINE_IDS] as [string, ...string[]])
-      .catch(DEFAULT_MODEL_IDS.offline).default(DEFAULT_MODEL_IDS.offline)
+      .catch(DEFAULT_MODEL_IDS.offline).default(DEFAULT_MODEL_IDS.offline),
+    correction: z.enum(['none', 'macbert4csc', 'bert-chinese-int8'])
+      .catch(DEFAULT_MODEL_IDS.correction).default(DEFAULT_MODEL_IDS.correction)
   }).prefault({}),
 
   /** 识别行为里跟模型无关的那部分。 */
@@ -153,3 +155,9 @@ export const configSchema = z.object({
 })
 
 export const defaultConfig = (): AppConfig => configSchema.parse({}) as AppConfig
+
+export function applyConfigPatch(current: AppConfig, patch: ConfigPatch): AppConfig {
+  const next = configSchema.parse({ ...current, ...patch, models: { ...current.models, ...patch.models } }) as AppConfig
+  if (next.models.streaming === MODEL_NONE && next.models.offline === MODEL_NONE) throw new Error('至少保留一种识别模型')
+  return next
+}

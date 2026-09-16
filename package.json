@@ -1,6 +1,6 @@
 {
   "name": "vocal",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Vocal — Windows 桌面语音输入：按住说话，流式上屏，像输入法一样用。",
   "private": true,
   "author": {
@@ -38,12 +38,15 @@
     "m0:focus": "electron scripts/m0/index.cjs --check=focus",
     "m0:inject": "electron scripts/m0/index.cjs --check=inject",
     "m0:roundtrip": "electron scripts/m0/index.cjs --check=roundtrip",
-    "m1:asr": "electron scripts/m0/asr.cjs"
+    "m1:asr": "electron scripts/m0/asr.cjs",
+    "m1:correction": "node --experimental-strip-types scripts/m0/correction-models.mjs",
+    "m0:correction": "electron scripts/m0/correction.cjs"
   },
   "dependencies": {
     "electron-store": "^11.0.2",
     "electron-updater": "^6.8.9",
     "koffi": "^3.2.1",
+    "onnxruntime-node": "1.30.0",
     "pinyin-pro": "^3.29.4",
     "semver": "^7.8.5",
     "sherpa-onnx-node": "^1.13.8",
