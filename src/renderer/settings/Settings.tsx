@@ -137,10 +137,9 @@ function HotkeyTab({ cfg, patch }: TabProps): React.ReactElement {
   const [delay, setDelay] = useState(String(h.mouseHoldDelayMs / 1000))
   const [delayError, setDelayError] = useState('')
   useEffect(() => { setDelay(String(h.mouseHoldDelayMs / 1000)) }, [h.mouseHoldDelayMs])
-  // Clicking another control blurs the delay field before its IPC save returns.
-  // Carry the valid draft into that update so it cannot overwrite the new delay.
+  // Preserve a valid draft when blur-save overlaps with another setting change.
   const draftMs = Math.round(Number(delay) * 1000)
-  const nextHotkey = h.mode === 'mouseHold' && Number.isFinite(draftMs) && draftMs >= 100 && draftMs <= 10000
+  const nextHotkey = h.mouseEnabled && Number.isFinite(draftMs) && draftMs >= 100 && draftMs <= 10000
     ? { ...h, mouseHoldDelayMs: draftMs } : h
   const saveDelay = async (): Promise<void> => {
     const ms = Math.round(Number(delay) * 1000)
@@ -155,95 +154,74 @@ function HotkeyTab({ cfg, patch }: TabProps): React.ReactElement {
   }
   return (
     <Page title="触发方式">
-      <Section>
-        <Row label="录音方式">
-          <Select
-            value={h.mode}
-            onChange={(v) => patch({ hotkey: { ...nextHotkey, mode: v as never } })}
-            options={[
-              ['hold', '按住说话，松开结束'],
-              ['toggle', '按一下开始，再按一下结束'],
-              ['doubleTap', '双击开始，单击结束'],
-              ['mouseHold', '鼠标左右键按住说话']
-            ]}
-            className="max-w-xs"
-          />
-        </Row>
-
-        {h.mode === 'mouseHold' ? (
-          <Row label="启动延迟" hint="左右键同时按住多久后开始录音">
+      <Section title="键盘触发" action={
+        <Toggle checked={h.keyboardEnabled} ariaLabel="键盘触发"
+          onChange={(keyboardEnabled) => patch({ hotkey: { ...nextHotkey, keyboardEnabled } })} />
+      }>
+        {h.keyboardEnabled && <>
+          <Row label="录音方式">
+            <Select value={h.mode}
+              onChange={(v) => patch({ hotkey: { ...nextHotkey, mode: v as never } })}
+              options={[
+                ['hold', '按住说话，松开结束'],
+                ['toggle', '按一下开始，再按一下结束'],
+                ['doubleTap', '双击开始，单击结束']
+              ]} className="max-w-xs" />
+          </Row>
+          {h.mode === 'toggle' ? (
+            <Row label="组合键">
+              <Input value={h.accelerator} mono className="max-w-xs"
+                onChange={(v) => patch({ hotkey: { ...nextHotkey, accelerator: v } })} />
+            </Row>
+          ) : (
+            <Row label="按键">
+              <Select value={h.key} className="max-w-sm"
+                onChange={(key) => patch({ hotkey: { ...nextHotkey, key } })}
+                options={KEYS.map((c) => [c.key, c.label] as [string, string])} />
+            </Row>
+          )}
+          <Row label="最短录音时长" hint="短于此时长不识别">
+            <Num value={h.minHoldMs} min={0} max={2000} suffix="毫秒"
+              onChange={(n) => patch({ hotkey: { ...nextHotkey, minHoldMs: n } })} />
+          </Row>
+          {h.mode === 'doubleTap' && <Row label="双击间隔">
+            <Num value={h.doubleTapWindowMs} min={150} max={800} suffix="毫秒"
+              onChange={(n) => patch({ hotkey: { ...nextHotkey, doubleTapWindowMs: n } })} />
+          </Row>}
+          <Note>键盘录音时按 Esc 取消。</Note>
+        </>}
+      </Section>
+      <Section title="鼠标触发" action={
+        <Toggle checked={h.mouseEnabled} ariaLabel="鼠标触发"
+          onChange={(mouseEnabled) => patch({ hotkey: { ...nextHotkey, mouseEnabled } })} />
+      }>
+        {h.mouseEnabled && <>
+          <Row label="鼠标按键">
+            <Select value={h.mouseButton} className="max-w-xs"
+              onChange={(v) => patch({ hotkey: { ...nextHotkey, mouseButton: v as 'middle' | 'leftMiddle' } })}
+              options={[[ 'middle', '中键（按下滚轮）' ], [ 'leftMiddle', '左键＋中键' ]]} />
+          </Row>
+          <Row label="启动延迟" hint="按住多久后开始录音">
             <div className="flex items-center gap-2">
-              <input
-                aria-label="启动延迟（秒）"
-                type="number" min={0.1} max={10} step={0.1}
+              <input aria-label="启动延迟（秒）" type="number" min={0.1} max={10} step={0.1}
                 value={delay}
                 onChange={(e) => { setDelay(e.target.value); setDelayError('') }}
                 onBlur={() => void saveDelay()}
                 onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                className="w-28 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[13px] tabular-nums focus:border-[var(--accent)] focus:outline-none"
-              />
+                className="w-28 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[13px] tabular-nums focus:border-[var(--accent)] focus:outline-none" />
               <span className="text-[12px] text-[var(--fg-muted)]">秒</span>
             </div>
             {delayError && <p role="alert" className="mt-1 text-[12px] text-[var(--danger)]">{delayError}</p>}
           </Row>
-        ) : h.mode === 'toggle' ? (
-          <Row label="组合键">
-            <Input
-              value={h.accelerator}
-              onChange={(v) => patch({ hotkey: { ...nextHotkey, accelerator: v } })}
-              mono
-              className="max-w-xs"
-            />
-          </Row>
-        ) : (
-          <Row label="按键">
-            <Select
-              value={h.key}
-              onChange={(key) => patch({ hotkey: { ...nextHotkey, key } })}
-              options={KEYS.map((c) => [c.key, c.label] as [string, string])}
-              className="max-w-sm"
-            />
-          </Row>
-        )}
-
-        <Row label="重复触发间隔" hint="间隔过短时忽略重复触发">
-          <Num
-            value={h.debounceMs}
-            min={0}
-            max={2000}
-            suffix="毫秒"
-            onChange={(n) => patch({ hotkey: { ...nextHotkey, debounceMs: n } })}
-          />
-        </Row>
-
-        {h.mode !== 'mouseHold' && <Row label="最短录音时长" hint="短于此时长不识别">
-          <Num
-            value={h.minHoldMs}
-            min={0}
-            max={2000}
-            suffix="毫秒"
-            onChange={(n) => patch({ hotkey: { ...nextHotkey, minHoldMs: n } })}
-          />
-        </Row>}
-
-        {h.mode === 'doubleTap' && (
-          <Row label="双击间隔">
-            <Num
-              value={h.doubleTapWindowMs}
-              min={150}
-              max={800}
-              suffix="毫秒"
-              onChange={(n) => patch({ hotkey: { ...nextHotkey, doubleTapWindowMs: n } })}
-            />
-          </Row>
-        )}
+          <Note>按住说话，松开结束；组合按键需同时按住。中键可能触发应用的滚动功能。</Note>
+        </>}
       </Section>
-
-      <Note>
-        {h.mode === 'mouseHold'
-          ? '松开任意一键结束；等待时移动鼠标会取消触发。可能触发目标应用的右键菜单。'
-          : <>录音中按 <kbd className="rounded border border-[var(--border)] px-1 font-mono">Esc</kbd> 取消，已输入的文字会撤回。</>}
-      </Note>
+      {(h.keyboardEnabled || h.mouseEnabled) ? <Section>
+        <Row label="重复触发间隔" hint="间隔过短时忽略重复触发">
+          <Num value={h.debounceMs} min={0} max={2000} suffix="毫秒"
+            onChange={(n) => patch({ hotkey: { ...nextHotkey, debounceMs: n } })} />
+        </Row>
+      </Section> : <Note>当前未启用录音触发。</Note>}
     </Page>
   )
 }

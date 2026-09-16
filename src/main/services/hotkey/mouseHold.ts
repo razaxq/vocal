@@ -9,17 +9,19 @@ export class MouseHoldTrigger {
   private timer: ReturnType<typeof setTimeout> | undefined
   private delayMs: number
   private debounceMs: number
-  private events: { onStart: () => void; onStop: () => void }
+  private required: readonly number[]
+  private events: { onStart: () => boolean | void; onStop: () => void }
 
-  constructor(delayMs: number, debounceMs: number, events: { onStart: () => void; onStop: () => void }) {
+  constructor(delayMs: number, debounceMs: number, events: { onStart: () => boolean | void; onStop: () => void }, button: 'middle' | 'leftMiddle' = 'middle') {
     this.delayMs = delayMs
     this.debounceMs = debounceMs
     this.events = events
+    this.required = button === 'middle' ? [3] : [1, 3]
   }
 
   down(button: unknown, x: number, y: number): void {
-    // libuiohook: 1 = left, 2 = right (not the browser MouseEvent numbering).
-    if ((button !== 1 && button !== 2) || this.buttons.has(button)) return
+    // libuiohook: 1 = left, 3 = middle; the right button is never a trigger.
+    if (typeof button !== 'number' || !this.required.includes(button) || this.buttons.has(button)) return
     const now = Date.now()
     if (!this.buttons.size) {
       this.firstDownAt = now
@@ -28,19 +30,19 @@ export class MouseHoldTrigger {
     }
     this.buttons.add(button)
     this.move(x, y)
-    if (this.buttons.size !== 2 || this.blocked) return
+    if (this.buttons.size !== this.required.length || this.blocked) return
     // A long-held button followed by another press is usually a drag/other gesture.
     if (now - this.firstDownAt > 250) { this.blocked = true; return }
     this.timer = setTimeout(() => {
       this.timer = undefined
-      if (this.blocked || this.buttons.size !== 2) return
+      if (this.blocked || this.buttons.size !== this.required.length) return
+      if (this.events.onStart() === false) { this.blocked = true; return }
       this.active = true
-      this.events.onStart()
     }, this.delayMs)
   }
 
   up(button: unknown): void {
-    if (button !== 1 && button !== 2) return
+    if (typeof button !== 'number' || !this.required.includes(button)) return
     if (!this.buttons.delete(button)) return
     this.cancelWaiting()
     this.stop()

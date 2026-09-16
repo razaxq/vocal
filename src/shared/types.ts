@@ -51,9 +51,11 @@ export type HotkeyMode =
   | 'hold'      // 按住说话，松开结束（最像对讲机，也最不容易误触）
   | 'toggle'    // 按一下开始，再按一下结束（长输入用这个，手不用一直按着）
   | 'doubleTap' // 双击某键开始，再单击结束
-  | 'mouseHold' // 左右键同时按住，等待后开始，松开任意一键结束
 
 export interface HotkeyConfig {
+  keyboardEnabled: boolean
+  mouseEnabled: boolean
+  mouseButton: 'middle' | 'leftMiddle'
   mode: HotkeyMode
   /** hold / doubleTap 用 uiohook 的键名，例如 'RightControl'、'F2' */
   key: string
@@ -64,7 +66,7 @@ export interface HotkeyConfig {
   debounceMs: number
   /** hold 模式下按住时间短于这个值视为误触，直接丢弃这次录音 */
   minHoldMs: number
-  /** 鼠标左右键同时按住多久后开始录音 */
+  /** 鼠标触发按住多久后开始录音 */
   mouseHoldDelayMs: number
 }
 

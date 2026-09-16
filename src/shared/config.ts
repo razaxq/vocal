@@ -1,7 +1,7 @@
 /** 配置的默认值与校验。主进程用 zod 校验后写入 electron-store。 */
 import { z } from 'zod'
 import type { AppConfig } from './ipc'
-import { ALL_RECORDABLE_KEYS, DEFAULT_HOTKEY_KEY } from './hotkeys'
+import { ALL_RECORDABLE_KEYS, DEFAULT_HOTKEY_KEY, migrateHotkeyConfig } from './hotkeys'
 import { STREAMING_IDS, OFFLINE_IDS, DEFAULT_MODEL_IDS, MODEL_NONE } from './modelRegistry'
 
 /** 段级轻润色：只修错别字，不改写句式。默认不用。 */
@@ -32,8 +32,11 @@ export const DEFAULT_CONSOLIDATE_PROMPT = [
 ].join('\n')
 
 export const configSchema = z.object({
-  hotkey: z.object({
-    mode: z.enum(['hold', 'toggle', 'doubleTap', 'mouseHold']).default('hold'),
+  hotkey: z.preprocess(migrateHotkeyConfig, z.object({
+    keyboardEnabled: z.boolean().default(true),
+    mouseEnabled: z.boolean().default(false),
+    mouseButton: z.enum(['middle', 'leftMiddle']).default('middle'),
+    mode: z.enum(['hold', 'toggle', 'doubleTap']).default('hold'),
     // 必须是 uiohook 认识的键名。写错了要到注册热键那一刻才炸，所以在这里就挡住。
     key: z.enum(ALL_RECORDABLE_KEYS as [string, ...string[]]).catch(DEFAULT_HOTKEY_KEY).default(DEFAULT_HOTKEY_KEY),
     accelerator: z.string().default('Control+Shift+Space'),
@@ -41,7 +44,7 @@ export const configSchema = z.object({
     debounceMs: z.number().int().min(0).max(2000).default(300),
     minHoldMs: z.number().int().min(0).max(2000).default(200),
     mouseHoldDelayMs: z.number().int().min(100).max(10000).default(1000)
-  }).prefault({}),
+  }).prefault({})),
 
   /**
    * 选哪套本地模型。'none' 表示不使用该层。

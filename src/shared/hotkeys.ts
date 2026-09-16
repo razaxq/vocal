@@ -65,6 +65,15 @@ export const DEFAULT_HOTKEY_KEY = 'CtrlRight'
 /** 取消键固定用 Escape，不开放配置。 */
 export const CANCEL_KEY = 'Escape'
 
+/** Upgrade the former exclusive mouse mode without enabling extra triggers. */
+export function migrateHotkeyConfig(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+  const cfg = value as Record<string, unknown>
+  if (cfg.mode !== 'mouseHold') return value
+  return { ...cfg, mode: 'hold', keyboardEnabled: cfg.keyboardEnabled ?? false,
+    mouseEnabled: cfg.mouseEnabled ?? true, mouseButton: cfg.mouseButton ?? 'middle' }
+}
+
 export function isValidHotkeyKey(key: string): boolean {
   return HOTKEY_KEYS.includes(key)
 }

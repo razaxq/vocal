@@ -41,6 +41,7 @@ export class HotkeyService {
   private keycode = 0
   private cfg: HotkeyConfig | null = null
   private mouse: MouseHoldTrigger | undefined
+  private mouseActive = false
 
   constructor(private events: HotkeyEvents) {}
 
@@ -48,18 +49,14 @@ export class HotkeyService {
     this.teardown()
     this.cfg = cfg
 
-    if (cfg.mode === 'mouseHold') {
-      this.keycode = 0
-      this.mouse = new MouseHoldTrigger(cfg.mouseHoldDelayMs, cfg.debounceMs, this.events)
-      uIOhook.on('input', this.onMouseInput)
-    } else if (cfg.mode === 'toggle') {
+    if (cfg.keyboardEnabled && cfg.mode === 'toggle') {
       const ok = globalShortcut.register(cfg.accelerator, () => this.toggle())
       if (!ok) throw new Error(`热键 ${cfg.accelerator} 注册失败，可能已被其它程序占用`)
       // keycode 置 0，下面 onKeyDown 里主键那条分支永远不会命中，
       // 但 Esc 取消仍然要挂上 —— 之前这里直接 return，导致 toggle 模式下
       // 根本没人监听 Esc，界面上的「Esc 取消」提示是个谎。
       this.keycode = 0
-    } else {
+    } else if (cfg.keyboardEnabled) {
       const code = UiohookKey[cfg.key as KeyName]
       if (typeof code !== 'number') {
         // uiohook 的枚举是 CtrlRight 而不是 RightControl 这种，写错只会在这里暴露
@@ -70,19 +67,39 @@ export class HotkeyService {
       this.keycode = code
     }
 
-    // 鼠标模式不监听键盘，也不使用 Esc 取消。
-    if (cfg.mode !== 'mouseHold') {
+    if (cfg.mouseEnabled) {
+      this.mouse = new MouseHoldTrigger(cfg.mouseHoldDelayMs, cfg.debounceMs, {
+        onStart: () => {
+          if (this.active || !this.canStart()) return false
+          this.mouseActive = true
+          this.lastTapAt = 0
+          this.events.onStart()
+          return true
+        },
+        onStop: () => {
+          if (!this.mouseActive) return
+          this.mouseActive = false
+          this.lastEndedAt = Date.now()
+          this.events.onStop()
+        }
+      }, cfg.mouseButton)
+      uIOhook.on('input', this.onMouseInput)
+    }
+    if (cfg.keyboardEnabled) {
       uIOhook.on('keydown', this.onKeyDown)
       uIOhook.on('keyup', this.onKeyUp)
     }
-    if (!this.hookRunning) {
+    if (!cfg.keyboardEnabled && !cfg.mouseEnabled) {
+      if (this.hookRunning) uIOhook.stop()
+      this.hookRunning = false
+    } else if (!this.hookRunning) {
       uIOhook.start()
       this.hookRunning = true
     }
   }
 
   private onMouseInput = (e: { type: number; button?: unknown; x?: number; y?: number }): void => {
-    if (!this.mouse) return
+    if (!this.mouse || (this.active && e.type === 7)) return
     // The binding emits dragged (10) through 'input', but not through 'mousemove'.
     if (e.type === 8) this.mouse.up(e.button)
     else if (e.type === 11) this.mouse.cancelWaiting()
@@ -93,6 +110,8 @@ export class HotkeyService {
   }
 
   private onKeyDown = (e: { keycode: number }): void => {
+    // Only the device that started a recording may finish/cancel it.
+    if (this.mouseActive) return
     if (e.keycode === UiohookKey[CANCEL_KEY as KeyName] && this.active) {
       this.active = false
       this.armedByDoubleTap = false
@@ -106,6 +125,7 @@ export class HotkeyService {
       if (this.active) return // 长按的自动重复
       if (!this.canStart()) return
       this.active = true
+      this.mouse?.cancelWaiting()
       this.pressedAt = Date.now()
       this.events.onStart()
       return
@@ -128,6 +148,7 @@ export class HotkeyService {
       this.lastTapAt = 0
       if (!this.canStart()) return
       this.active = true
+      this.mouse?.cancelWaiting()
       this.armedByDoubleTap = true
       this.pressedAt = now
       this.events.onStart()
@@ -159,14 +180,16 @@ export class HotkeyService {
    * 连续误触会让面板疯狂闪烁。
    */
   private canStart(): boolean {
-    if (!this.cfg) return false
+    if (!this.cfg || this.mouseActive) return false
     return Date.now() - this.lastEndedAt >= this.cfg.debounceMs
   }
 
   private toggle(): void {
+    if (this.mouseActive) return
     if (!this.active) {
       if (!this.canStart()) return
       this.active = true
+      this.mouse?.cancelWaiting()
       this.pressedAt = Date.now()
       this.events.onStart()
     } else {
