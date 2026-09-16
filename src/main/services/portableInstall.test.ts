@@ -9,7 +9,7 @@ import type { PortableUpdater } from './portableUpdater'
 const require = createRequire(import.meta.url)
 const source = buildSync({ entryPoints: ['src/main/services/portableUpdater.ts'], bundle: true,
   platform: 'node', format: 'cjs', write: false,
-  external: ['electron', 'extract-zip'] }).outputFiles[0]!.text
+  external: ['electron', './extractPortableZip'] }).outputFiles[0]!.text
 
 for (const restart of [true, false]) {
   test(`便携更新助手使用正确重启设置（restart=${restart}）`, async () => {
@@ -28,7 +28,7 @@ for (const restart of [true, false]) {
           async writeFile(_path: string, value: string) { manifest = JSON.parse(value) }
         }
         if (name === 'node:child_process') return { spawn: () => child }
-        if (name === 'extract-zip') return () => assert.fail('unexpected extraction')
+        if (name === './extractPortableZip') return { extractPortableZip: () => assert.fail('unexpected extraction') }
         return require(name)
       }
     })

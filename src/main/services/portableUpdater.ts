@@ -1,12 +1,12 @@
 import { app } from 'electron'
 import { createHash } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
-import { mkdir, mkdtemp, readFile, writeFile, copyFile, access, readdir, rm, lstat } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile, copyFile, access, readdir, rm, lstat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { spawn } from 'node:child_process'
-import extract from 'extract-zip'
+import { extractPortableZip } from './extractPortableZip'
 import pkg from '../../../package.json'
 import type { UpdateBackend } from './updateController'
 import { selectPortableRelease, type PortableRelease } from './portableRelease'
@@ -59,18 +59,7 @@ export class PortableUpdater implements UpdateBackend {
       if (received !== expected || hash.digest('hex') !== this.release.sha256) {
         throw new Error('更新文件校验失败，请重试')
       }
-      await mkdir(payload)
-      await extract(archive, {
-        dir: payload,
-        onEntry(entry) {
-          const name = entry.fileName.replaceAll('\\', '/')
-          const type = (entry.externalFileAttributes >>> 16) & 0o170000
-          if (type === 0o120000 || name.split('/').some((p) => p === '..') ||
-              /^(data|\.vocal-update-[^/]*)(\/|$)/i.test(name)) {
-            throw new Error('更新包包含不允许替换的文件')
-          }
-        }
-      })
+      await extractPortableZip(archive, payload)
       await access(join(payload, 'Vocal.exe'))
       await access(join(payload, 'resources', 'app.asar'))
       this.stage = stage
