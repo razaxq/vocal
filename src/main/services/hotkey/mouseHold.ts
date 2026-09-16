@@ -12,11 +12,11 @@ export class MouseHoldTrigger {
   private required: readonly number[]
   private events: { onStart: () => boolean | void; onStop: () => void }
 
-  constructor(delayMs: number, debounceMs: number, events: { onStart: () => boolean | void; onStop: () => void }, button: 'middle' | 'leftMiddle' = 'middle') {
+  constructor(delayMs: number, debounceMs: number, events: { onStart: () => boolean | void; onStop: () => void }, button: 'left' | 'middle' | 'leftMiddle' = 'middle') {
     this.delayMs = delayMs
     this.debounceMs = debounceMs
     this.events = events
-    this.required = button === 'middle' ? [3] : [1, 3]
+    this.required = button === 'left' ? [1] : button === 'middle' ? [3] : [1, 3]
   }
 
   down(button: unknown, x: number, y: number): void {
@@ -46,7 +46,7 @@ export class MouseHoldTrigger {
     if (!this.buttons.delete(button)) return
     this.cancelWaiting()
     this.stop()
-    // Both buttons must be released before another gesture can start.
+    // All required buttons must be released before another gesture can start.
     if (!this.buttons.size) this.blocked = false
   }
 

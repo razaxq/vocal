@@ -198,8 +198,8 @@ function HotkeyTab({ cfg, patch }: TabProps): React.ReactElement {
         {h.mouseEnabled && <>
           <Row label="鼠标按键">
             <Select value={h.mouseButton} className="max-w-xs"
-              onChange={(v) => patch({ hotkey: { ...nextHotkey, mouseButton: v as 'middle' | 'leftMiddle' } })}
-              options={[[ 'middle', '中键（按下滚轮）' ], [ 'leftMiddle', '左键＋中键' ]]} />
+              onChange={(v) => patch({ hotkey: { ...nextHotkey, mouseButton: v as 'left' | 'middle' | 'leftMiddle' } })}
+              options={[[ 'left', '左键' ], [ 'middle', '中键（按下滚轮）' ], [ 'leftMiddle', '左键＋中键' ]]} />
           </Row>
           <Row label="启动延迟" hint="按住多久后开始录音">
             <div className="flex items-center gap-2">

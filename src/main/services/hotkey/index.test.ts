@@ -59,10 +59,11 @@ test('独立开关支持全部关闭并停止监听，再单独开启中键', t 
   service.dispose()
 })
 
-for (const mode of ['hold', 'doubleTap', 'toggle'] as const) {
-  test(`键鼠同时启用（${mode}）：只允许启动录音的设备结束，鼠标不受 Esc 影响`, t => {
+for (const mouseButton of ['left', 'middle'] as const) for (const mode of ['hold', 'doubleTap', 'toggle'] as const) {
+  test(`键鼠同时启用（${mode}/${mouseButton}）：只允许启动录音的设备结束，鼠标不受 Esc 影响`, t => {
     const { service, config, hook, calls, input, tick, shortcut } = setup(t)
-    service.apply({ ...config, keyboardEnabled: true, mouseButton: 'middle', mode })
+    service.apply({ ...config, keyboardEnabled: true, mouseButton, mode })
+    const button = mouseButton === 'left' ? 1 : 3
     assert.equal(hook.listenerCount('input'), 1)
     assert.equal(hook.listenerCount('keydown'), 1)
     const keyDown = () => hook.emit('keydown', { keycode: 3613 })
@@ -72,14 +73,14 @@ for (const mode of ['hold', 'doubleTap', 'toggle'] as const) {
       else { keyDown(); if (mode === 'doubleTap') { keyUp(); tick(100); keyDown() } }
     }
     const stopKeyboard = () => { if (mode === 'toggle') shortcut(); else if (mode === 'hold') keyUp(); else keyDown() }
-    input(7, 3); tick(1000)
+    input(7, button); tick(1000)
     startKeyboard(); stopKeyboard(); hook.emit('keydown', { keycode: 1 })
     assert.deepEqual(calls, ['start'])
-    input(8, 3)
+    input(8, button)
     assert.deepEqual(calls, ['start', 'stop'])
     tick(300)
     startKeyboard(); tick(300)
-    input(7, 3); tick(1000); input(8, 3)
+    input(7, button); tick(1000); input(8, button)
     assert.deepEqual(calls, ['start', 'stop', 'start'])
     stopKeyboard()
     assert.deepEqual(calls, ['start', 'stop', 'start', 'stop'])

@@ -29,12 +29,12 @@ test('旧左右键模式迁移为仅中键，保留用户延迟，不重置整�
   assert.equal(cfg.ui.launchAtLogin, true)
 })
 
-test('键鼠开关互相独立，只接受中键或左键加中键，延迟限制保持不变', () => {
-  for (const keyboardEnabled of [true, false]) for (const mouseEnabled of [true, false]) {
-    const cfg = configSchema.parse({ hotkey: { keyboardEnabled, mouseEnabled, mouseButton: 'leftMiddle', mouseHoldDelayMs: 10000 } })
+test('键鼠开关互相独立，支持左键、中键和左键加中键，延迟限制保持不变', () => {
+  for (const keyboardEnabled of [true, false]) for (const mouseEnabled of [true, false]) for (const mouseButton of ['left', 'middle', 'leftMiddle']) {
+    const cfg = configSchema.parse({ hotkey: { keyboardEnabled, mouseEnabled, mouseButton, mouseHoldDelayMs: 10000 } })
     assert.equal(cfg.hotkey.keyboardEnabled, keyboardEnabled)
     assert.equal(cfg.hotkey.mouseEnabled, mouseEnabled)
-    assert.equal(cfg.hotkey.mouseButton, 'leftMiddle')
+    assert.equal(cfg.hotkey.mouseButton, mouseButton)
   }
   assert.equal(configSchema.safeParse({ hotkey: { mouseButton: 'leftRight' } }).success, false)
   for (const mouseHoldDelayMs of [0, 99, 10001, NaN, Infinity]) {

@@ -2,6 +2,27 @@ import test, { type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { MouseHoldTrigger } from './mouseHold.ts'
 
+test('左键长按触发，短按和拖动不触发；其他键松开不结束录音', t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 10000 })
+  const events: string[] = []
+  const trigger = new MouseHoldTrigger(1000, 300, {
+    onStart: () => { events.push('start') }, onStop: () => { events.push('stop') }
+  }, 'left')
+  trigger.down(2, 0, 0); trigger.down(3, 0, 0); t.mock.timers.tick(1000)
+  trigger.up(2); trigger.up(3)
+  trigger.down(1, 0, 0); t.mock.timers.tick(999); trigger.up(1); t.mock.timers.tick(1000)
+  assert.deepEqual(events, [])
+  trigger.down(1, 0, 0); trigger.move(7, 0); t.mock.timers.tick(1000); trigger.up(1)
+  assert.deepEqual(events, [])
+  trigger.down(1, 0, 0); t.mock.timers.tick(999)
+  assert.deepEqual(events, [])
+  t.mock.timers.tick(1); trigger.up(2); trigger.up(3)
+  assert.deepEqual(events, ['start'])
+  trigger.up(1); trigger.up(1)
+  assert.deepEqual(events, ['start', 'stop'])
+  trigger.dispose()
+})
+
 test('中键单独按住触发；左右键组合无效，右键松开不结束录音', t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 10000 })
   const events: string[] = []
