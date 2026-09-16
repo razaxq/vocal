@@ -113,7 +113,7 @@ export interface AppConfig {
     launchAtLogin: boolean
   }
   update: {
-    /** 启动时及运行期间自动检查新版本 */
+    /** 自动检查并下载更新，退出时安装 */
     auto: boolean
   }
 }

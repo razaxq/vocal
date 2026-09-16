@@ -185,7 +185,7 @@ function UpdateSection({ st }: {
       case 'latest': return '已是最新版本'
       case 'available': return `有新版本 ${st.latest ?? ''}`
       case 'downloading': return `正在下载 ${st.latest ?? ''}… ${st.percent ?? 0}%`
-      case 'ready': return `${st.latest ?? ''} 已准备好`
+      case 'ready': return `${st.latest ?? ''} 已下载，可重启更新`
       case 'installing': return '正在更新，完成后自动重启…'
       case 'error': return ''
       default: return ''
@@ -204,7 +204,8 @@ function UpdateSection({ st }: {
             {st?.state === 'downloading' ? '正在下载…'
               : st?.state === 'installing' ? '正在更新…'
                 : st?.state === 'checking' ? '正在检查…'
-                  : st?.latest ? (st.state === 'error' ? '重试更新' : '立即更新') : '检查更新'}
+                  : st?.state === 'ready' ? '重启更新'
+                    : st?.latest ? (st.state === 'error' ? '重试更新' : '立即更新') : '检查更新'}
           </Button>
         </div>
         {line && !actionError && <div className="mt-2"><Note>{line}</Note></div>}

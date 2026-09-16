@@ -108,15 +108,15 @@ export class PortableUpdater implements UpdateBackend {
     }
   }
 
-  async install(): Promise<void> {
-    this.beforeInstall()
+  async install(restart = true): Promise<void> {
+    if (restart) this.beforeInstall()
     if (!this.stage) throw new Error('更新尚未下载完成')
     const helper = join(this.stage, 'apply.ps1')
     await copyFile(join(process.resourcesPath, 'update-portable.ps1'), helper)
     const configPath = join(this.stage, 'apply.json')
     await writeFile(configPath, JSON.stringify({
       appDir: dirname(app.getPath('exe')), stage: this.stage, parentPid: process.pid,
-      restart: true
+      restart
     }))
     await rm(join(this.stage, 'ready'), { force: true })
     const child = spawn(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), [
@@ -131,7 +131,7 @@ export class PortableUpdater implements UpdateBackend {
       if (failed) throw failed
       const ready = await readFile(join(this.stage, 'ready'), 'utf8').catch(() => '')
       if (ready === 'ready') {
-        try { this.beforeInstall() } catch (e) { child.kill(); throw e }
+        try { if (restart) this.beforeInstall() } catch (e) { child.kill(); throw e }
         child.unref()
         app.quit()
         return

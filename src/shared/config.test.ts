@@ -10,6 +10,12 @@ runInNewContext(buildSync({ entryPoints: ['src/shared/config.ts'], bundle: true,
 { module, exports: module.exports })
 const { configSchema } = module.exports
 
+test('自动更新默认开启，保留用户关闭的选择', () => {
+  assert.equal(configSchema.parse({}).update.auto, true)
+  assert.equal(configSchema.parse({ update: {} }).update.auto, true)
+  assert.equal(configSchema.parse({ update: { auto: false } }).update.auto, false)
+})
+
 test('旧键盘设置补全独立开关，保留按键、录音模式和其他设置', () => {
   const cfg = configSchema.parse({ hotkey: { mode: 'doubleTap', key: 'AltRight' }, asr: { idleUnloadMin: 17 } })
   assert.equal(cfg.hotkey.keyboardEnabled, true)

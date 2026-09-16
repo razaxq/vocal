@@ -147,7 +147,7 @@ export const configSchema = z.object({
   }).prefault({}),
 
   update: z.object({
-    /** 启动及运行期间自动检查；用户点击后才下载并安装。 */
+    /** 自动检查并下载更新，退出时安装。 */
     auto: z.boolean().default(true)
   }).prefault({})
 })
