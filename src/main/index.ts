@@ -207,6 +207,7 @@ async function bootstrap(): Promise<void> {
       // 说话期间请求的重载攒到这里做，不打断正在进行的一次输入
       if (s === 'idle' && reloadPending) void reloadAsr(config.get())
       else if ((s === 'idle' || s === 'error') && hotwordsPending) applyHotwords()
+      if (s === 'idle' || s === 'error') void updater?.resumeAutoUpdate()
     },
     onPartial: (p) => toPanel(CH.partial, p),
     onSegment: (s) => toPanel(CH.segment, s),
@@ -255,7 +256,7 @@ async function bootstrap(): Promise<void> {
   }
 
   hotkeys = new HotkeyService({
-    onStart: () => { if (!modelMaintenance) session.start() },
+    onStart: () => { if (!modelMaintenance && updater?.current.state !== 'installing') session.start() },
     onStop: () => session.stop(),
     onCancel: () => void session.cancel()
   })
@@ -281,7 +282,7 @@ async function bootstrap(): Promise<void> {
     if (session.current !== 'idle' && session.current !== 'error') {
       throw new Error('请先结束当前语音输入，再点击更新')
     }
-  })
+  }, () => session.current === 'idle' || session.current === 'error')
   updater.start(cfg.update.auto)
 
   registerIpc(injector)

@@ -2,29 +2,105 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { UpdateController, type UpdateBackend } from './updateController.ts'
 
-test('自动更新启动检查并下载，退出前不安装', async () => {
+test('关闭自动更新后仍定时检查，退出后停止检查', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] })
+  let checks = 0
+  const c = new UpdateController('0.1.0', true, {
+    async check() { checks++; return null },
+    async download() { assert.fail('unexpected download') },
+    async install() { assert.fail('unexpected install') }
+  }, () => {})
+  c.start(false)
+  await c.check()
+  assert.equal(checks, 1)
+  t.mock.timers.tick(6 * 60 * 60 * 1000)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(checks, 2)
+  c.stop()
+  t.mock.timers.tick(6 * 60 * 60 * 1000)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(checks, 2)
+})
+
+test('录音及识别期间暂缓安装，空闲后自动安装且只执行一次', async () => {
+  let idle = false
+  let downloads = 0
+  let installs = 0
+  const c = new UpdateController('0.1.0', true, {
+    async check() { return '0.2.0' },
+    async download() { downloads++ },
+    async install(restart) { assert.equal(restart, true); installs++ }
+  }, () => {}, () => idle)
+  c.start(true)
+  await c.check()
+  assert.equal(c.current.state, 'ready')
+  await c.resumeAutoUpdate()
+  assert.equal(installs, 0)
+  idle = true
+  await Promise.all([c.resumeAutoUpdate(), c.resumeAutoUpdate()])
+  assert.equal(downloads, 1)
+  assert.equal(installs, 1)
+  c.stop()
+})
+
+test('等待识别结束期间关闭自动更新，空闲后仍需手动安装', async () => {
+  let idle = false
+  let installs = 0
+  const c = new UpdateController('0.1.0', true, {
+    async check() { return '0.2.0' },
+    async download() {},
+    async install() { installs++ }
+  }, () => {}, () => idle)
+  c.start(true)
+  await c.check()
+  c.start(false)
+  idle = true
+  await c.resumeAutoUpdate()
+  assert.equal(installs, 0)
+  await c.installNow()
+  assert.equal(installs, 1)
+  c.stop()
+})
+
+test('检查尚未返回时点击更新，不与自动更新互相等待或重复安装', async () => {
+  let finish!: (version: string) => void
+  let downloads = 0
+  let installs = 0
+  const c = new UpdateController('0.1.0', true, {
+    check() { return new Promise(resolve => { finish = resolve }) },
+    async download() { downloads++ },
+    async install() { installs++ }
+  }, () => {})
+  c.start(true)
+  const pending = c.installNow()
+  finish('0.2.0')
+  await pending
+  assert.equal(downloads, 1)
+  assert.equal(installs, 1)
+  c.stop()
+})
+
+test('开启自动更新时启动检查、下载并立即安装重启', async () => {
   let checks = 0
   let downloads = 0
   let installs = 0
   const backend: UpdateBackend = {
     async check() { checks++; return '0.2.0' },
     async download() { downloads++ },
-    async install() { installs++ }
+    async install(restart) { assert.equal(restart, true); installs++ }
   }
   const c = new UpdateController('0.1.0', true, backend, () => {})
   c.start(true)
   await c.check()
   assert.equal(checks, 1)
-  assert.equal(c.current.state, 'ready')
+  assert.equal(c.current.state, 'installing')
   assert.equal(c.current.latest, '0.2.0')
   assert.equal(downloads, 1)
-  assert.equal(installs, 0)
-  assert.equal(c.installOnQuit, true)
+  assert.equal(installs, 1)
   c.stop()
-  assert.equal(c.installOnQuit, false)
 })
 
-test('关闭自动更新不后台检查，手动检查不下载，手动安装仍可使用', async () => {
+test('关闭自动更新仍在启动时检查并提示，点击后才下载和安装', async () => {
   let checks = 0
   let downloads = 0
   const restartFlags: boolean[] = []
@@ -34,14 +110,14 @@ test('关闭自动更新不后台检查，手动检查不下载，手动安装�
     async install(restart) { restartFlags.push(restart) }
   }, () => {})
   c.start(false)
-  await Promise.resolve()
-  assert.equal(checks, 0)
   await c.check()
+  assert.equal(checks, 1)
+  assert.equal(c.current.state, 'available')
   assert.equal(downloads, 0)
-  assert.equal(c.installOnQuit, false)
   await c.installNow()
   assert.equal(downloads, 1)
   assert.deepEqual(restartFlags, [true])
+  c.stop()
 })
 
 test('检查未完成时关闭自动更新，不启动下载', async () => {
@@ -56,10 +132,10 @@ test('检查未完成时关闭自动更新，不启动下载', async () => {
   finish('0.2.0')
   await c.check()
   assert.equal(c.current.state, 'available')
-  assert.equal(c.installOnQuit, false)
+  c.stop()
 })
 
-test('后台下载与手动更新共用下载，退出安装不重启；重新启用可使用已下载更新', async () => {
+test('下载中关闭自动更新不安装，重新启用后直接安装已下载更新', async () => {
   let finish!: () => void
   let downloads = 0
   const restarts: boolean[] = []
@@ -74,12 +150,11 @@ test('后台下载与手动更新共用下载，退出安装不重启；重新�
   finish()
   await c.check()
   assert.equal(c.current.state, 'ready')
-  assert.equal(c.installOnQuit, false)
+  assert.deepEqual(restarts, [])
   c.start(true)
-  assert.equal(c.installOnQuit, true)
-  await Promise.all([c.installNow(false), c.installNow(false)])
+  await c.resumeAutoUpdate()
   assert.equal(downloads, 1)
-  assert.deepEqual(restarts, [false])
+  assert.deepEqual(restarts, [true])
   c.stop()
 })
 
@@ -98,27 +173,27 @@ test('下载过程中点击更新不会重复下载；安装失败重试复用�
   finish()
   await pending
   assert.equal(c.current.state, 'error')
-  assert.equal(c.installOnQuit, false)
   await c.installNow()
   assert.equal(downloads, 1)
   assert.equal(installs, 2)
   c.stop()
 })
 
-test('后台下载失败可在下次检查重试，不自动安装', async () => {
+test('后台下载失败可在下次检查重试，成功后才安装', async () => {
   let downloads = 0
+  let installs = 0
   const c = new UpdateController('0.1.0', true, {
     async check() { return '0.2.0' },
     async download() { if (++downloads === 1) throw new Error('offline') },
-    async install() { assert.fail('unexpected install') }
+    async install() { installs++ }
   }, () => {})
   c.start(true)
   await c.check()
   assert.equal(c.current.state, 'error')
-  assert.equal(c.installOnQuit, false)
+  assert.equal(installs, 0)
   await c.check()
-  assert.equal(c.current.state, 'ready')
-  assert.equal(c.installOnQuit, true)
+  assert.equal(c.current.state, 'installing')
+  assert.equal(installs, 1)
   c.stop()
 })
 

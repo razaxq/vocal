@@ -26,11 +26,12 @@ export function GeneralTab({ cfg, patch }: {
         </Row>
       </Section>
       <Section title="更新">
-        <Row label="自动更新" hint="后台下载，退出软件时安装">
+        <Row label="自动更新" hint="发现新版后自动下载安装并重启">
           <Toggle checked={cfg.update.auto} disabled={saving} ariaLabel="自动更新"
             onChange={(auto) => void save({ update: { ...cfg.update, auto } })} />
         </Row>
       </Section>
+      <Note>启动时会自动检查更新；关闭自动更新后仅提示。</Note>
       {saving && <Note>正在保存…</Note>}
       {error && <Note tone="danger">{error}</Note>}
     </Page>

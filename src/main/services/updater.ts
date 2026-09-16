@@ -1,4 +1,4 @@
-/** 后台下载更新，退出时安装，也可手动重启更新。 */
+/** 始终自动检查；启用自动更新后下载并重启安装。 */
 import { app } from 'electron'
 import type { AppUpdater } from 'electron-updater'
 import { gt } from 'semver'
@@ -7,17 +7,11 @@ import { UpdateController, type UpdateBackend } from './updateController'
 import { PortableUpdater } from './portableUpdater'
 
 export class UpdaterService extends UpdateController {
-  constructor(installed: boolean, onStatus: (s: UpdateStatus) => void, beforeInstall: () => void) {
+  constructor(installed: boolean, onStatus: (s: UpdateStatus) => void, beforeInstall: () => void,
+    canInstall: () => boolean = () => true) {
     const backend = installed ? installedBackend(beforeInstall) : new PortableUpdater(beforeInstall)
-    super(app.getVersion(), app.isPackaged, backend, onStatus)
-    app.on('before-quit', (event) => {
-      if (!this.installOnQuit) return
-      event.preventDefault()
-      // 安装器/便携助手准备好后会再次退出；失败也应允许用户正常退出。
-      void this.installNow(false).then(() => {
-        if (this.current.state === 'error') app.quit()
-      })
-    })
+    super(app.getVersion(), app.isPackaged, backend, onStatus, canInstall)
+    app.on('before-quit', () => this.stop())
   }
 }
 

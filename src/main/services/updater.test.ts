@@ -12,7 +12,7 @@ const source = buildSync({ entryPoints: ['src/main/services/updater.ts'], bundle
 
 for (const installed of [true, false]) {
   for (const failure of [false, true]) {
-    test(`${installed ? '安装版' : '便携版'}退出时安装、不重启，失败仍正常退出（失败=${failure}）`, async () => {
+    test(`${installed ? '安装版' : '便携版'}自动下载并重启安装，失败时保留应用（失败=${failure}）`, async () => {
       let exited = 0
       let prevented = 0
       let beforeInstall = 0
@@ -56,14 +56,15 @@ for (const installed of [true, false]) {
       const service = new module.exports.UpdaterService(installed, () => {}, () => { beforeInstall++ })
       service.start(true)
       await service.check()
-      assert.equal(service.current.state, 'ready')
-      assert.equal(exited, 0)
+      assert.equal(service.current.state, failure ? 'error' : 'installing')
+      assert.equal(exited, failure ? 0 : 1)
+      assert.deepEqual(restarts, [true])
       app.quit()
       await new Promise(resolve => setImmediate(resolve))
-      assert.deepEqual(restarts, [false])
-      assert.equal(prevented, 1)
-      assert.equal(exited, 1)
-      assert.equal(beforeInstall, 0)
+      assert.deepEqual(restarts, [true])
+      assert.equal(prevented, 0)
+      assert.equal(exited, failure ? 1 : 2)
+      assert.equal(beforeInstall, installed ? 1 : 0)
       if (installed) {
         assert.equal(au.autoDownload, false)
         assert.equal(au.autoInstallOnAppQuit, false)

@@ -61,6 +61,7 @@ app.whenReady().then(async () => {
   await until(`[...document.querySelectorAll('nav button')].some(b => b.textContent === '识别')`)
   await run(`[...document.querySelectorAll('nav button')].find(b => b.textContent === '通用').click()`)
   await until(`document.querySelector('[role="switch"][aria-label="自动更新"]')?.getAttribute('aria-checked') === 'true'`)
+  assert.equal(await run(`[...document.querySelectorAll('[role="switch"]')].some(b => /检查更新/.test(b.getAttribute('aria-label') || ''))`), false)
   await run(`document.querySelector('[role="switch"][aria-label="自动更新"]').click()`)
   await until(`document.querySelector('[role="switch"][aria-label="自动更新"]')?.getAttribute('aria-checked') === 'false'`)
   assert.equal(config.update.auto, false)

@@ -6,7 +6,7 @@ export interface UpdateBackend {
   install(restart: boolean): Promise<void>
 }
 
-/** 自动更新在后台下载，退出时安装；手动更新可立即重启。 */
+/** 自动检查始终开启；自动更新开关只控制下载和安装。 */
 export class UpdateController {
   private status: UpdateStatus
   private checking: Promise<UpdateStatus> | null = null
@@ -18,18 +18,23 @@ export class UpdateController {
   private backend: UpdateBackend
   private packaged: boolean
   private onStatus: (s: UpdateStatus) => void
+  private canInstall: () => boolean
 
-  constructor(version: string, packaged: boolean, backend: UpdateBackend, onStatus: (s: UpdateStatus) => void) {
+  constructor(version: string, packaged: boolean, backend: UpdateBackend, onStatus: (s: UpdateStatus) => void,
+    canInstall: () => boolean = () => true) {
     this.status = { state: packaged ? 'idle' : 'dev', version }
     this.backend = backend
     this.packaged = packaged
     this.onStatus = onStatus
+    this.canInstall = canInstall
   }
 
   get current(): UpdateStatus { return this.status }
 
-  get installOnQuit(): boolean {
-    return this.auto && this.downloaded && !this.installing && this.status.state === 'ready'
+  resumeAutoUpdate(): Promise<void> {
+    if (!this.auto || this.status.state !== 'ready' || !this.canInstall()) return Promise.resolve()
+    if (this.installing) return this.installing.then(() => this.resumeAutoUpdate())
+    return this.install(true, true)
   }
 
   private set(patch: Partial<UpdateStatus>): void {
@@ -40,7 +45,7 @@ export class UpdateController {
   start(auto: boolean): void {
     this.stop()
     this.auto = auto
-    if (!this.packaged || !auto) return
+    if (!this.packaged) return
     void this.check()
     this.timer = setInterval(() => void this.check(), 6 * 60 * 60 * 1000)
     this.timer.unref?.()
@@ -54,13 +59,14 @@ export class UpdateController {
 
   check(): Promise<UpdateStatus> {
     if (this.checking) return this.checking
-    if (!this.packaged || this.installing || this.downloading || this.downloaded) return Promise.resolve(this.status)
+    if (!this.packaged || this.installing || this.downloading || this.status.state === 'installing') return Promise.resolve(this.status)
+    if (this.downloaded) return this.resumeAutoUpdate().then(() => this.status)
     this.set({ state: 'checking', percent: undefined })
     this.checking = (async () => {
       try {
         const latest = await this.backend.check()
         this.set({ state: latest ? 'available' : 'latest', latest: latest ?? undefined })
-        if (latest && this.auto) await this.download()
+        if (latest && this.auto) await this.install(true, true)
       } catch (e) {
         this.set({ state: 'error', message: e instanceof Error ? e.message : String(e) })
       }
@@ -82,13 +88,19 @@ export class UpdateController {
   }
 
   installNow(restart = true): Promise<void> {
-    if (!this.packaged) return Promise.resolve()
-    if (this.installing) return this.installing
+    return this.install(restart, false)
+  }
+
+  private install(restart: boolean, automatic: boolean): Promise<void> {
+    if (!this.packaged || this.status.state === 'installing') return Promise.resolve()
+    // A manual install may already be waiting for this check; do not await it from the check itself.
+    if (this.installing) return automatic ? Promise.resolve() : this.installing
     this.installing = Promise.resolve().then(async () => {
-      if (this.checking) await this.checking
-      if (!this.status.latest) return
+      if (!automatic && this.checking) await this.checking
+      if (!this.status.latest || (automatic && !this.auto)) return
       try {
         await this.download()
+        if (automatic && (!this.auto || !this.canInstall())) return
         this.set({ state: 'installing' })
         await this.backend.install(restart)
       } catch (e) {
