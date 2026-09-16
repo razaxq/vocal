@@ -12,7 +12,6 @@ import { useMemo, useState } from 'react'
 import { cleanupSpeech } from '@shared/textCleanup'
 import type { AppConfig } from '@shared/ipc'
 import { Textarea, Button } from './ui'
-import { useHotwordCatalog } from './hotwords'
 import { mergeHotwords } from '@shared/hotwordCatalog'
 
 const SAMPLES = [
@@ -23,16 +22,15 @@ const SAMPLES = [
 
 export function CleanupPreview({ cfg }: { cfg: AppConfig }): React.ReactElement {
   const [input, setInput] = useState(SAMPLES[0] ?? '')
-  const catalog = useHotwordCatalog()
 
   const result = useMemo(
     () => cleanupSpeech(input, {
       level: cfg.cleanup.level,
       protect: cfg.cleanup.protectHotwords
-        ? mergeHotwords(cfg.hotwords, cfg.networkHotwords.enabled ? catalog?.words ?? [] : []).map(w => w.text) : [],
+        ? mergeHotwords(cfg.hotwords, []).map(w => w.text) : [],
       extraFillers: cfg.cleanup.extraFillers
     }),
-    [input, cfg.cleanup.level, cfg.cleanup.protectHotwords, cfg.cleanup.extraFillers, cfg.hotwords, cfg.networkHotwords.enabled, catalog]
+    [input, cfg.cleanup.level, cfg.cleanup.protectHotwords, cfg.cleanup.extraFillers, cfg.hotwords]
   )
 
   return (

@@ -16,7 +16,7 @@ import type {
 } from '@shared/types'
 import { SessionAudioBuffer } from './audioBuffer'
 import { SilenceSegmenter } from './silenceSegmenter'
-import type { RecognitionHotword } from '@shared/hotwordCatalog'
+import type { RecognitionHotword, HotwordCatalog } from '@shared/hotwordCatalog'
 
 export interface EngineEvents {
   /** 当前正在说的这段的实时文本 */
@@ -63,7 +63,8 @@ export class AsrEngine {
     private cleanup: CleanupConfig,
     private endpointSilenceMs: number,
     private idleUnloadMin: number,
-    private events: EngineEvents
+    private events: EngineEvents,
+    private dictionary?: HotwordCatalog
   ) {}
 
   private entry(name: string): string {
@@ -106,7 +107,7 @@ export class AsrEngine {
         sp.postMessage({
           type: 'init',
           models: this.models,
-          hotwords: this.hotwords,
+          hotwords: [],
           enabled: true,
           endpointSilenceMs: this.endpointSilenceMs
         } satisfies StreamCommand)
@@ -127,7 +128,8 @@ export class AsrEngine {
           models: this.models,
           cleanup: this.cleanup,
           mode: finalizeMode,
-          hotwords: this.hotwords
+          hotwords: this.hotwords,
+          dictionary: finalizeMode === 'full' && this.models.offline.kind === 'offline-transducer' ? this.dictionary : undefined
         } satisfies FinalizeCommand)
       }
 
@@ -272,12 +274,19 @@ export class AsrEngine {
     this.audio.reset()
   }
 
-  /** 两个进程都要知道 —— transducer 模型在哪一层都吃热词。 */
+  /** 热词只用于最终识别；更新不触碰流式模型。 */
   updateHotwords(hotwords: RecognitionHotword[]): void {
     if (JSON.stringify(this.hotwords) === JSON.stringify(hotwords)) return
     this.hotwords = hotwords
-    this.stream?.postMessage({ type: 'hotwords:update', hotwords } satisfies StreamCommand)
     this.finalize?.postMessage({ type: 'hotwords:update', hotwords } satisfies FinalizeCommand)
+  }
+
+  updateDictionary(dictionary?: HotwordCatalog): void {
+    if (this.dictionary === dictionary) return
+    this.dictionary = dictionary
+    if (this.profile !== 'streaming-only' && this.models.offline.kind === 'offline-transducer') {
+      this.finalize?.postMessage({ type: 'dictionary:update', dictionary } satisfies FinalizeCommand)
+    }
   }
 
   updateCleanup(cleanup: CleanupConfig): void {

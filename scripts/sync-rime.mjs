@@ -1,4 +1,4 @@
-/** 固定到同一个上游提交，保留原始词典和许可，再生成可供 ASR 加权的子集。 */
+/** 固定到同一个上游提交，保留原始词典和许可，再生成完整检索词库。 */
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { selectRimeWords } from '../src/shared/rimeDictionary.ts'
@@ -19,11 +19,11 @@ const [dictionary, license] = await Promise.all([
 ])
 if (!license.includes('GNU GENERAL PUBLIC LICENSE')) throw new Error('请检查上游许可变更')
 const selected = selectRimeWords(dictionary)
-if (selected.words.length !== 500) throw new Error('上游词库不完整')
+if (selected.words.length < 500_000) throw new Error('上游词库不完整')
 let old
 try { old = JSON.parse(await readFile(new URL('catalog.json', directory), 'utf8')) } catch { /* 首次生成。 */ }
 const sha256 = createHash('sha256').update(dictionary).digest('hex')
-if (old?.source?.revision === commit.sha && old?.source?.sha256 === sha256) {
+if (old?.source?.revision === commit.sha && old?.source?.sha256 === sha256 && old?.source?.selection === 'full-pinyin-v2') {
   console.log('雾凇词库已是最新'); process.exit(0)
 }
 const catalog = {
@@ -31,12 +31,12 @@ const catalog = {
   updatedAt: selected.date,
   source: {
     id: 'rime-ice', revision: commit.sha, file: 'cn_dicts/base.dict.yaml',
-    license: 'GPL-3.0', sha256, selection: 'frequency-3-12-v1', eligibleCount: selected.eligibleCount
+    license: 'GPL-3.0', sha256, selection: 'full-pinyin-v2', eligibleCount: selected.eligibleCount
   },
-  words: selected.words
+  words: selected.words, readings: selected.readings
 }
 await mkdir(directory, { recursive: true })
 await writeFile(new URL('base.dict.yaml', directory), dictionary)
 await writeFile(new URL('LICENSE', directory), license)
-await writeFile(new URL('catalog.json', directory), JSON.stringify(catalog, null, 2) + '\n')
-console.log(`雾凇 ${commit.sha}: ${selected.eligibleCount} 个候选，启用 ${selected.words.length} 个高频词`)
+await writeFile(new URL('catalog.json', directory), JSON.stringify(catalog) + '\n')
+console.log(`雾凇 ${commit.sha}: ${selected.words.length} 个词条参与检索`)

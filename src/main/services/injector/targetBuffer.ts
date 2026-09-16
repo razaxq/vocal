@@ -24,11 +24,12 @@ export class TargetBuffer {
   private written = ''
   private queue: Promise<unknown> = Promise.resolve()
 
-  constructor(
-    private injector: TextInjector,
-    private target: InjectionTarget | undefined,
-    private opts: TargetBufferOptions
-  ) {}
+  private injector: TextInjector
+  private target: InjectionTarget | undefined
+  private opts: TargetBufferOptions
+  constructor(injector: TextInjector, target: InjectionTarget | undefined, opts: TargetBufferOptions) {
+    this.injector = injector; this.target = target; this.opts = opts
+  }
 
   get length(): number {
     return this.written.length

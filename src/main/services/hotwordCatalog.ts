@@ -34,9 +34,12 @@ export class HotwordCatalogService {
   }
 
   get current(): HotwordCatalogStatus {
-    return { ...this.catalog, words: [...this.catalog.words], state: this.state,
+    const { readings: _, words, ...metadata } = this.catalog
+    return { ...metadata, words: words.slice(0, 100), wordCount: words.length, state: this.state,
       checkedAt: this.checkedAt || undefined, message: this.message }
   }
+
+  get data(): HotwordCatalog { return this.catalog }
 
   async load(): Promise<void> {
     try {
@@ -83,7 +86,7 @@ export class HotwordCatalogService {
     this.message = undefined
     this.publish(this.current)
     this.controller = new AbortController()
-    const timeout = setTimeout(() => this.controller?.abort(), 15000)
+    const timeout = setTimeout(() => this.controller?.abort(), 60000)
     try {
       const response = await this.fetcher(CATALOG_URL, { signal: this.controller.signal, redirect: 'error', headers: { 'Cache-Control': 'no-cache' } })
       if (!response.ok || !response.body) throw new Error('词库下载失败')

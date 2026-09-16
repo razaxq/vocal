@@ -13,4 +13,4 @@
 package-lock.json  linguist-generated=true -diff
 resources/dictionaries/rime-ice/base.dict.yaml linguist-vendored=true -text -diff
 resources/dictionaries/rime-ice/LICENSE -text
-resources/dictionaries/rime-ice/catalog.json linguist-generated=true
+resources/dictionaries/rime-ice/catalog.json linguist-generated=true -diff

@@ -13,11 +13,12 @@ test('雾凇词库有效，来源可追溯，所有词由原始词库生成', ()
   const raw = bundled
   const parsed = parseCatalog(raw)
   assert.deepEqual(parsed.words, raw.words)
-  assert.equal(parsed.words.length, 500)
+  assert.ok(parsed.words.length > 500_000)
   const dictionary = readFileSync(new URL('base.dict.yaml', directory), 'utf8')
   assert.equal(createHash('sha256').update(dictionary).digest('hex'), parsed.source.sha256)
   const generated = selectRimeWords(dictionary)
   assert.deepEqual(parsed.words, generated.words)
+  assert.deepEqual(parsed.readings, generated.readings)
   assert.equal(parsed.source.eligibleCount, generated.eligibleCount)
   assert.equal(parsed.updatedAt, generated.date)
   assert.ok(readFileSync(new URL('LICENSE', directory), 'utf8').includes('GNU GENERAL PUBLIC LICENSE'))
@@ -32,7 +33,7 @@ test('个人词优先，网络词较低加权，关闭网络词不改变个人�
   assert.deepEqual(personal, ['情绪价值', ' Vocal ', 'vocal', ''])
 })
 
-test('流式与定稿都收到每词权重，不把权重当成词语', () => {
+test('热词序列化保留每词权重，不把权重当成词语', () => {
   const words = mergeHotwords(['花费'], ['松弛感'])
   const tokens = new Set(['▁花', '费', '▁松', '弛', '感'])
   assert.deepEqual(encodeHotwords(words, tokens), { lines: ['▁花 费 :2.5', '▁松 弛 感 :1.5'], dropped: [] })
@@ -41,7 +42,7 @@ test('流式与定稿都收到每词权重，不把权重当成词语', () => {
 })
 
 test('词库拒绝超量、控制符、引擎分隔符和加权语法', () => {
-  for (const words of [[], Array(501).fill('热词'), ['热词 :20'], ['热/词'], ['热\n词'], ['a'.repeat(33)]]) {
+  for (const words of [[], Array(1_000_001).fill('热词'), ['热词 :20'], ['热/词'], ['热\n词'], ['a'.repeat(65)]]) {
     assert.throws(() => parseCatalog({ ...bundled, words }))
   }
   assert.throws(() => parseCatalog({ version: 0, updatedAt: '2026-09-16', words: ['热词'] }))
@@ -53,8 +54,10 @@ test('拒绝旧手工词库，防止旧缓存继续生效', () => {
   assert.throws(() => parseCatalog(legacy), /来源/)
 })
 
-test('按真实词频排序，去重，跳过短词、注释和引擎语法', () => {
+test('保留短词及多音读法，按词频排序，去重并跳过注释和引擎语法', () => {
   const text = '# Rime dictionary\nversion: "2026-09-01"\n...\n低频词\tdi pin ci\t1\n高频词\tgao pin ci\t99\n高频词\tgao pin ci\t3\n短词\tduan ci\t999\n#注释词\tfoo\t999\n坏:词\tfoo\t999\n'
-  assert.deepEqual(selectRimeWords(text).words, ['高频词', '低频词'])
-  assert.equal(selectRimeWords(text).eligibleCount, 2)
+  assert.deepEqual(selectRimeWords(text).words, ['短词', '高频词', '低频词'])
+  assert.equal(selectRimeWords(text).eligibleCount, 3)
+  const polyphonic = selectRimeWords(text + '短词\tduan zi\t8\n')
+  assert.equal(polyphonic.readings[0], 'duan ci|duan zi')
 })

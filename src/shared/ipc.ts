@@ -127,7 +127,9 @@ export interface ModelProgress {
   message?: string
 }
 
-export interface HotwordCatalogStatus extends HotwordCatalog {
+export interface HotwordCatalogStatus extends Omit<HotwordCatalog, 'readings'> {
+  /** words 仅供界面预览；全量数据只发给定稿进程。 */
+  wordCount: number
   state: 'idle' | 'checking' | 'latest' | 'updated' | 'error'
   checkedAt?: number
   message?: string

@@ -8,10 +8,10 @@ import { MAX_CATALOG_BYTES } from '../../shared/hotwordCatalog.ts'
 
 const source = {
   id: 'rime-ice', revision: 'a'.repeat(40), file: 'cn_dicts/base.dict.yaml', license: 'GPL-3.0',
-  sha256: 'b'.repeat(64), selection: 'frequency-3-12-v1', eligibleCount: 1000
+  sha256: 'b'.repeat(64), selection: 'full-pinyin-v2', eligibleCount: 1
 } as const
-const bundled = { version: 2, updatedAt: '2026-09-16', source, words: ['情绪价值'] }
-const newer = { ...bundled, version: 3, words: ['情绪价值', '松弛感'] }
+const bundled = { version: 2, updatedAt: '2026-09-16', source, words: ['情绪价值'], readings: ['qing xu jia zhi'] }
+const newer = { ...bundled, version: 3, source: { ...source, eligibleCount: 2 }, words: ['情绪价值', '松弛感'], readings: ['qing xu jia zhi', 'song chi gan'] }
 
 async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
   const dir = await mkdtemp(join(tmpdir(), 'vocal-hotword-test-'))

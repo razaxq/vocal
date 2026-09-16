@@ -37,6 +37,7 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run m0:capture
+      - run: npm run m0:hotwords
 
       - name: Build and publish
         run: npm run release

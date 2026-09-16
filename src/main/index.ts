@@ -134,7 +134,7 @@ function cleanupConfigOf(cfg: AppConfig): CleanupConfig {
 }
 
 function recognitionHotwords(cfg: AppConfig) {
-  return mergeHotwords(cfg.hotwords, cfg.networkHotwords.enabled ? hotwordCatalog.current.words : [])
+  return mergeHotwords(cfg.hotwords, [])
 }
 
 function applyHotwords(): void {
@@ -145,6 +145,7 @@ function applyHotwords(): void {
   hotwordsPending = false
   const cfg = config.get()
   asr.updateHotwords(recognitionHotwords(cfg))
+  asr.updateDictionary(cfg.networkHotwords.enabled ? hotwordCatalog.data : undefined)
   asr.updateCleanup(cleanupConfigOf(cfg))
 }
 
@@ -191,7 +192,8 @@ async function bootstrap(): Promise<void> {
       onSegment: (seg, text, meta) => void session.onSegment(seg, text, meta),
       onSessionComplete: (id) => void session.onSessionComplete(id),
       onError: (msg, fatal) => session.onError(msg, fatal)
-    }
+    },
+    cfg.networkHotwords.enabled ? hotwordCatalog.data : undefined
   )
 
   session = new SessionController(asr, injector, llm, history, getConfig, {
@@ -459,6 +461,7 @@ async function reloadAsr(cfg: AppConfig): Promise<void> {
     )
     hotwordsPending = false
     asr.updateHotwords(recognitionHotwords(config.get()))
+    asr.updateDictionary(config.get().networkHotwords.enabled ? hotwordCatalog.data : undefined)
     asr.updateCleanup(cleanupConfigOf(config.get()))
     broadcast(CH.asrStatus, { state: 'ready' })
   } catch (e) {

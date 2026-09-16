@@ -26,7 +26,8 @@ import type {
 import type { AppConfig, PanelPartial } from '@shared/ipc'
 import type { AsrEngine } from './asr/engine'
 import type { TextInjector } from './injector'
-import { TargetBuffer } from './injector/targetBuffer'
+import { TargetBuffer } from './injector/targetBuffer.ts'
+import { SegmentPreview } from '../../shared/segmentPreview.ts'
 import type { LlmService } from './llm'
 import type { HistoryService } from './history'
 
@@ -54,18 +55,23 @@ export class SessionController {
   /** 各段定稿文本拼接，等于「屏幕上应该有的内容」 */
   private committed = ''
   /** 当前段的流式文本 */
-  private live = ''
+  private preview = new SegmentPreview()
+  private segmentQueue: Promise<void> = Promise.resolve()
+  private get live(): string { return this.preview.live }
   /** rolling 整理：还没被整理过的那部分在 committed 里的起点 */
   private rollingFrom = 0
 
-  constructor(
-    private asr: AsrEngine,
-    private injector: TextInjector,
-    private llm: LlmService,
-    private history: HistoryService,
-    private getConfig: () => AppConfig,
-    private hooks: SessionHooks
-  ) {}
+  private asr: AsrEngine
+  private injector: TextInjector
+  private llm: LlmService
+  private history: HistoryService
+  private getConfig: () => AppConfig
+  private hooks: SessionHooks
+  constructor(asr: AsrEngine, injector: TextInjector, llm: LlmService, history: HistoryService,
+    getConfig: () => AppConfig, hooks: SessionHooks) {
+    this.asr = asr; this.injector = injector; this.llm = llm; this.history = history
+    this.getConfig = getConfig; this.hooks = hooks
+  }
 
   get current(): SessionState { return this.state }
 
@@ -92,7 +98,8 @@ export class SessionController {
     this.startedAt = Date.now()
     this.segments = []
     this.committed = ''
-    this.live = ''
+    this.preview.reset()
+    this.segmentQueue = Promise.resolve()
     this.rollingFrom = 0
 
     this.buffer = new TargetBuffer(this.injector, this.target, {
@@ -162,24 +169,39 @@ export class SessionController {
 
   /* ---------------- ASR 回调 ---------------- */
 
-  onPartial(_segment: number, text: string): void {
-    if (this.cancelled) return
-    this.live = text
+  onPartial(segment: number, text: string): void {
+    if (this.cancelled || !this.id) return
+    this.preview.partial(segment, text)
     this.emitPanel()
 
     if (this.getConfig().streaming.injectMode === 'live') {
-      void this.buffer?.set(this.committed + text)
+      void this.buffer?.set(this.committed + this.live)
     }
   }
 
-  async onSegment(index: number, text: string, meta: {
+  onSegment(index: number, text: string, meta: {
     cleanedChars: number; latencyMs: number; fellBack: boolean
   }): Promise<void> {
-    if (this.cancelled || !text.trim()) return
+    const id = this.id
+    const run = this.segmentQueue.then(async () => {
+      if (!id || this.id !== id || this.cancelled) return
+      await this.commitSegment(index, text, meta, id)
+    })
+    this.segmentQueue = run.catch(() => {
+      if (this.id === id) this.hooks.onToast('warn', '文字写入失败，请查看历史记录')
+    })
+    return this.segmentQueue
+  }
+
+  private async commitSegment(index: number, text: string, meta: {
+    cleanedChars: number; latencyMs: number; fellBack: boolean
+  }, id: string): Promise<void> {
+    const streamText = this.preview.finish(index)
+    if (!text.trim()) { this.emitPanel(); return }
 
     const seg: Segment = {
       index,
-      streamText: this.live,
+      streamText,
       finalText: text,
       cleanedChars: meta.cleanedChars,
       latencyMs: meta.latencyMs,
@@ -188,9 +210,11 @@ export class SessionController {
 
     // 段与段之间不额外加空格：中文不需要，英文由标点模型收尾
     this.committed = this.committed ? `${this.committed}${text}` : text
-    this.live = ''
+    this.emitPanel()
 
-    const ok = await this.buffer?.set(this.committed)
+    const next = this.committed + (this.getConfig().streaming.injectMode === 'live' ? this.live : '')
+    const ok = await this.buffer?.set(next)
+    if (this.id !== id || this.cancelled) return
     seg.injected = ok === true
     if (ok === false) {
       this.hooks.onToast('warn', '这一段没能写进目标窗口，文本留在面板里')
@@ -204,7 +228,8 @@ export class SessionController {
   }
 
   async onSessionComplete(sessionId: string): Promise<void> {
-    if (this.id !== sessionId || this.cancelled) { this.reset(); return }
+    await this.segmentQueue
+    if (this.id !== sessionId || this.cancelled) return
 
     if (!this.committed.trim()) {
       this.hooks.onToast('info', '没有识别到内容')
@@ -213,6 +238,7 @@ export class SessionController {
     }
 
     await this.consolidateAll()
+    if (this.id !== sessionId || this.cancelled) return
 
     const t: Transcript = {
       id: this.id ?? randomUUID(),
@@ -308,7 +334,7 @@ export class SessionController {
     this.cancelled = false
     this.segments = []
     this.committed = ''
-    this.live = ''
+    this.preview.reset()
     this.rollingFrom = 0
     this.setState('idle')
     this.hooks.hidePanel()

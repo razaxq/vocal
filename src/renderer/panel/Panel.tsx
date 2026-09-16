@@ -87,7 +87,7 @@ export function Panel(): React.ReactElement {
       setState(s)
       if (s === 'listening') capture.current?.open()
       if (s !== 'listening' && s !== 'arming') capture.current?.close()
-      if (s === 'idle') { setCommitted(''); setLive('') }
+      // 最终文字保留到退场结束；新会话会通过 onPartial 清空。
     })
     const offPartial = window.vocal.onPartial((p) => {
       setCommitted(p.committed)

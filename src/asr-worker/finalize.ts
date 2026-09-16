@@ -14,7 +14,8 @@ import sherpa, { type OfflineRecognizer, type OfflinePunctuation } from 'sherpa-
 import type { FinalizeCommand, FinalizeEvent, ModelPaths, CleanupConfig } from '@shared/types'
 import { cleanupSpeech } from '@shared/textCleanup'
 import { detectVoice, isFinalSane } from '@shared/audioGate'
-import { offlineHotwords, type RecognitionHotword } from '@shared/hotwordCatalog'
+import { mergeHotwords, offlineHotwords, type RecognitionHotword, type HotwordCatalog } from '@shared/hotwordCatalog'
+import { HotwordIndex } from '@shared/hotwordRetrieval'
 
 const port = process.parentPort
 const send = (e: FinalizeEvent): void => port.postMessage(e)
@@ -24,6 +25,7 @@ let punct: OfflinePunctuation | null = null
 let cleanup: CleanupConfig = { level: 'standard', protect: [], extraFillers: [] }
 let models: ModelPaths | null = null
 let hotwords: RecognitionHotword[] = []
+let dictionary: HotwordIndex | undefined
 
 /**
  * 热词加权强度。和 stream.ts 同一个口径，理由见那边的注释。
@@ -39,8 +41,13 @@ const HOTWORDS_SCORE = 2.5
  * 这个模型是 byte-level BPE，配上 modelingUnit='bbpe' + bpeVocab 之后
  * 可以直接写自然词，不用像流式那样自己按词表编码。
  */
-function hotwordsArg(): string | undefined {
-  return offlineHotwords(hotwords)
+function hotwordsArg(candidates: string[] = []): string | undefined {
+  return offlineHotwords(mergeHotwords(hotwords.map(word => word.text), candidates))
+}
+
+function updateDictionary(catalog?: HotwordCatalog): void {
+  dictionary = catalog && recognizer && models?.offline.kind === 'offline-transducer' && models.offline.bpeVocab
+    ? new HotwordIndex(catalog) : undefined
 }
 
 /** 标点 + 规则清洗，两个档位共用的收尾。 */
@@ -56,7 +63,7 @@ function polish(text: string): { text: string; removed: number } {
   return { text: cleaned.text, removed: cleaned.removed }
 }
 
-function init(m: ModelPaths, c: CleanupConfig, mode: 'full' | 'punct-only', hw: RecognitionHotword[]): void {
+function init(m: ModelPaths, c: CleanupConfig, mode: 'full' | 'punct-only', hw: RecognitionHotword[], catalog?: HotwordCatalog): void {
   cleanup = c
   models = m
   hotwords = hw
@@ -64,6 +71,7 @@ function init(m: ModelPaths, c: CleanupConfig, mode: 'full' | 'punct-only', hw: 
   // punct-only：只用流式档位，不重转写，所以 SenseVoice 不加载（省 ~230MB）。
   // 标点模型照常加载 —— 它才 72MB，而没有它输出就是一长串不断句的字。
   if (mode === 'full') buildRecognizer(m)
+  updateDictionary(catalog)
   buildPunct(m)
   send({ type: 'ready' })
 }
@@ -83,7 +91,8 @@ function buildRecognizer(m: ModelPaths): void {
   if (off.kind === 'offline-transducer') {
     // 热词只在 transducer + modified_beam_search 下生效。
     // bpeVocab 是硬前提：没有它，sherpa 编码热词时会失败并静默跳过。
-    const wantHotwords = Boolean(off.bpeVocab) && hotwordsArg() !== undefined
+    // 固定解码方式，改热词只影响下一段，不重新读入模型。
+    const wantHotwords = Boolean(off.bpeVocab)
     recognizer = new sherpa.OfflineRecognizer({
       featConfig: { sampleRate: 16000, featureDim: 80 },
       modelConfig: {
@@ -152,16 +161,15 @@ port.on('message', (event: { data: FinalizeCommand }) => {
   try {
     switch (cmd.type) {
       case 'init':
-        init(cmd.models, cmd.cleanup, cmd.mode, cmd.hotwords)
+        init(cmd.models, cmd.cleanup, cmd.mode, cmd.hotwords, cmd.dictionary)
         break
 
       case 'hotwords:update':
-        // 空表与非空表切换时必须重建，以切换 greedy / beam 解码。
-        const wasEnabled = hotwords.length > 0
         hotwords = cmd.hotwords
-        if (recognizer && models?.offline.kind === 'offline-transducer' && wasEnabled !== (hotwords.length > 0)) {
-          buildRecognizer(models)
-        }
+        break
+
+      case 'dictionary:update':
+        updateDictionary(cmd.dictionary)
         break
 
       case 'punctuate': {
@@ -201,14 +209,25 @@ port.on('message', (event: { data: FinalizeCommand }) => {
         const voice = detectVoice(samples)
 
         if (voice.hasVoice && recognizer && samples.length > 0) {
-          // 离线侧热词是 per-stream 给的，不在构造配置里
-          const hw = models?.offline.kind === 'offline-transducer' && models.offline.bpeVocab
-            ? hotwordsArg()
-            : undefined
-          const s = hw === undefined ? recognizer.createStream() : recognizer.createStream(hw)
-          s.acceptWaveform({ sampleRate: 16000, samples })
-          recognizer.decode(s)
-          text = (recognizer.getResult(s).text ?? '').trim()
+          const supportsHotwords = models?.offline.kind === 'offline-transducer' && Boolean(models.offline.bpeVocab)
+          const decode = (candidates: string[] = []): string => {
+            const hw = supportsHotwords ? hotwordsArg(candidates) : undefined
+            const s = hw === undefined ? recognizer!.createStream() : recognizer!.createStream(hw)
+            s.acceptWaveform({ sampleRate: 16000, samples })
+            recognizer!.decode(s)
+            return (recognizer!.getResult(s).text ?? '').trim()
+          }
+          if (dictionary && !cmd.streamText.trim()) {
+            // 仅定稿模式：先取得初稿，有候选时才用原音频再识别一次。
+            text = decode()
+            const candidates = dictionary.retrieve(text)
+            if (candidates.length) {
+              const refined = decode(candidates)
+              if (isFinalSane(refined, text)) text = refined
+            }
+          } else {
+            text = decode(dictionary?.retrieve(cmd.streamText) ?? [])
+          }
         }
 
         if (!isFinalSane(text, cmd.streamText)) {

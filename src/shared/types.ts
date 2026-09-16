@@ -1,7 +1,7 @@
 /** 跨进程共享的领域类型。主进程 / 渲染进程 / 两个 ASR 工作进程都引用这里。 */
 
 import type { CleanupLevel } from './textCleanup'
-import type { RecognitionHotword } from './hotwordCatalog'
+import type { RecognitionHotword, HotwordCatalog } from './hotwordCatalog'
 
 /** 会话生命周期。UI 的每一种视觉状态都对应其中之一。 */
 export type SessionState =
@@ -205,6 +205,7 @@ export type FinalizeCommand =
       mode: 'full' | 'punct-only'
       /** 只有 transducer 定稿模型吃得下；CTC 模型（SenseVoice）传了也没用 */
       hotwords: RecognitionHotword[]
+      dictionary?: HotwordCatalog
     }
   | {
       type: 'finalize'
@@ -222,6 +223,7 @@ export type FinalizeCommand =
       text: string
     }
   | { type: 'cleanup:update'; cleanup: CleanupConfig }
+  | { type: 'dictionary:update'; dictionary?: HotwordCatalog }
   | { type: 'hotwords:update'; hotwords: RecognitionHotword[] }
   | { type: 'shutdown' }
 
