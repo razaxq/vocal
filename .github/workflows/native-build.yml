@@ -1,0 +1,63 @@
+name: native-build
+on:
+  workflow_call:
+    inputs:
+      release:
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: native/dependencies/package-lock.json
+      - uses: actions/cache@v5
+        with:
+          path: data/native-tools/Qt
+          key: native-windows-x64-qt-6.8.3-mingw-13.1-${{ hashFiles('native/requirements-build.txt', 'native/scripts/setup.ps1') }}
+      - name: Install Qt, compiler and native SDK
+        run: ./native/scripts/setup.ps1
+      - name: Install NSIS
+        run: |
+          choco upgrade nsis --version=3.12 --yes --no-progress --allow-downgrade
+          if ($LASTEXITCODE) { throw 'NSIS installation failed' }
+      - name: Build, test and package Qt application
+        env:
+          NATIVE_RELEASE: ${{ inputs.release }}
+        run: ./native/scripts/ci.ps1 -Release:($env:NATIVE_RELEASE -eq 'true')
+      - name: Upload installation packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: vocal-native-windows-x64
+          path: |
+            data/native-ci-dist/*.exe
+            data/native-ci-dist/*.zip
+            data/native-ci-dist/SHA256SUMS.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: vocal-native-test-evidence
+          path: |
+            data/native-ci-build/Testing/
+            data/native-ci-check/
+          if-no-files-found: ignore
+          retention-days: 14

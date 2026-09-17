@@ -1,0 +1,9 @@
+{
+  "name": "vocal-native-sdk",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Build-time source of the pinned sherpa C ABI DLLs; no Node runtime is shipped.",
+  "dependencies": {
+    "sherpa-onnx-win-x64": "1.13.8"
+  }
+}

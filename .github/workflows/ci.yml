@@ -1,13 +1,22 @@
-# 每次 push / PR 跑类型检查和单元测试。
-# 构建后验证录音采集链路，不生成安装包。
+# Qt 构建/测试/打包；迁移期间同时保留旧 Electron 回归检查。
 name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'codex/**']
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  native:
+    uses: ./.github/workflows/native-build.yml
   check:
     runs-on: windows-latest
     steps:

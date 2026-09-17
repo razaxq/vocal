@@ -1,0 +1,9 @@
+{
+  "channel": "native",
+  "version": "@VOCAL_APP_VERSION@",
+  "productVersion": "@PROJECT_VERSION@",
+  "development": @VOCAL_DEVELOPMENT_JSON@,
+  "sourceCommit": "@VOCAL_SOURCE_COMMIT@",
+  "qtVersion": "6.8.3",
+  "sherpaVersion": "1.13.8"
+}

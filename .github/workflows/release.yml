@@ -1,45 +1,55 @@
-# 打 tag 就发版。
-#
-#   git tag v0.1.0 && git push origin v0.1.0
-#
-# 产物：NSIS 安装包（.exe）、便携包（.zip）、以及 latest.yml ——
-# 最后这个是 electron-updater 用来判断有没有新版本的清单，
-# 漏掉它自动更新就永远查不到新版。electron-builder 的 publish
-# 会自动带上，不要手动改 Release 的附件。
 name: release
-
 on:
   push:
     tags: ['v*']
+  # Manual runs create downloadable artifacts without publishing a release.
   workflow_dispatch:
-
 permissions:
-  contents: write        # 创建 Release 需要
-
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
-  windows:
-    runs-on: windows-latest
+  version:
+    runs-on: windows-2022
     steps:
-      # v7 跑在 Node 24 上。v4 系列还是 Node 20，GitHub 已经在弃用，
-      # 每次跑都会刷一条 deprecation 警告（只是警告，不影响结果）
       - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
         with:
-          node-version: 22
-          cache: npm
-
-      # 必须是干净安装：增量 npm install 会把非本平台的 optional 依赖
-      # 从 lock 里剔掉，Windows 上就装不到 sherpa-onnx-win-x64
-      - run: npm ci
-
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
-      - run: npm run m0:capture
-      - run: npm run m0:hotwords
-
-      - name: Build and publish
-        run: npm run release
+          persist-credentials: false
+      - name: Verify release version
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          IS_TAG: ${{ github.ref_type == 'tag' }}
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Expected a stable x.y.z version' }
+          if ($env:IS_TAG -eq 'true' -and $env:RELEASE_TAG -ne "v$version") {
+            throw "Tag $env:RELEASE_TAG does not match package.json ($version)"
+          }
+  build:
+    needs: version
+    uses: ./.github/workflows/native-build.yml
+    with:
+      release: true
+  publish:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: build
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: vocal-native-windows-x64
+          path: data/native-release
+      - name: Publish verified Qt packages
+        shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: ./native/scripts/publish.ps1 -Tag $env:RELEASE_TAG -Repository $env:RELEASE_REPOSITORY -ArtifactDirectory data/native-release
