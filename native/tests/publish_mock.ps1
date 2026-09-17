@@ -5,7 +5,14 @@ function global:gh {
     $arguments = @($args)
     ($arguments -join ' ') | Add-Content -LiteralPath $LogPath
     $global:LASTEXITCODE = 0
+    if ($arguments[0] -eq 'release' -and $arguments[1] -eq 'view') {
+        if ($global:VocalMockPhase -eq 0) { $global:LASTEXITCODE = 1; return 'release not found' }
+        return '{"apiUrl":"https://api.github.com/repos/razaxq/vocal/releases/12345"}'
+    }
     if ($arguments[0] -eq 'api') {
+        if ($arguments[1] -match '/tags/' -and $global:VocalMockPhase -lt 3) {
+            $global:LASTEXITCODE = 1; return 'gh: Not Found (HTTP 404)'
+        }
         if ($global:VocalMockPhase -eq 0) { $global:LASTEXITCODE = 1; return 'gh: Not Found (HTTP 404)' }
         $assets = @()
         if ($global:VocalMockPhase -ge 2) {

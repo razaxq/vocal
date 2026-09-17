@@ -51,7 +51,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn('--verify-tag --draft', commands)
         self.assertLess(commands.index('release upload'), commands.index('release edit'))
         self.assertIn('--draft=false --latest', commands)
-        self.assertTrue(commands.rstrip().endswith(f'releases/tags/v{version}'))
+        self.assertTrue(commands.rstrip().endswith('releases/12345'))
 
     def test_existing_draft_is_completed(self):
         result, commands = self.run_publish('draft')

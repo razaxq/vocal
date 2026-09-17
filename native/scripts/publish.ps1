@@ -36,11 +36,17 @@ try {
 } finally { $zip.Dispose() }
 if ($ValidateOnly) { Write-Output 'Native release artifacts verified (no GitHub changes).'; return }
 function Read-Release {
-    $response = & gh api "repos/$Repository/releases/tags/$Tag" 2>&1
+    # The REST by-tag endpoint can return 404 for drafts. gh resolves drafts
+    # too; use its stable release ID URL to verify the uploaded assets.
+    $reference = & gh release view $Tag --repo $Repository --json apiUrl 2>&1
     if ($LASTEXITCODE) {
-        if (($response | Out-String) -match 'HTTP 404') { return $null }
-        throw "Cannot read release: $response"
+        if (($reference | Out-String) -match 'release not found|HTTP 404') { return $null }
+        throw "Cannot resolve release: $reference"
     }
+    $apiUrl = ($reference | Out-String | ConvertFrom-Json).apiUrl
+    if (!$apiUrl.StartsWith("https://api.github.com/repos/$Repository/releases/")) { throw 'Unexpected release API URL' }
+    $response = & gh api $apiUrl 2>&1
+    if ($LASTEXITCODE) { throw "Cannot read release: $response" }
     return ($response | Out-String | ConvertFrom-Json)
 }
 function Test-Assets($release) {
@@ -79,9 +85,11 @@ try {
         & gh release create $Tag --repo $Repository --verify-tag --draft --title "Vocal v$version" --notes-file $notesFile
         if ($LASTEXITCODE) { throw 'Cannot create release draft' }
     }
-    $files = @($names | ForEach-Object { Join-Path $directory $_ })
-    & gh release upload $Tag @files --repo $Repository --clobber
-    if ($LASTEXITCODE) { throw 'Asset upload failed; release remains a draft' }
+    if (!(Test-Assets $release)) {
+        $files = @($names | ForEach-Object { Join-Path $directory $_ })
+        & gh release upload $Tag @files --repo $Repository --clobber
+        if ($LASTEXITCODE) { throw 'Asset upload failed; release remains a draft' }
+    }
     $verified = $false
     for ($attempt = 0; $attempt -lt 3; ++$attempt) {
         $release = Read-Release
