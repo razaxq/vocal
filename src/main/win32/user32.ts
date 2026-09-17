@@ -8,6 +8,7 @@
  * 相关位置已标 [VERIFY]。
  */
 import koffi from 'koffi'
+import { coversMonitor, type WindowRect } from './fullscreen'
 
 /* ---------- 类型定义 ---------- */
 
@@ -16,6 +17,9 @@ const RECT = koffi.struct('RECT', {
 })
 
 const POINT = koffi.struct('POINT', { x: 'int32', y: 'int32' })
+const MONITORINFO = koffi.struct('MONITORINFO', {
+  cbSize: 'uint32', rcMonitor: RECT, rcWork: RECT, dwFlags: 'uint32'
+})
 
 const MOUSEINPUT = koffi.struct('MOUSEINPUT', {
   dx: 'int32', dy: 'int32', mouseData: 'uint32',
@@ -126,6 +130,11 @@ export const GetWindowRect = user32.func(
   ['uintptr', koffi.out(koffi.pointer(RECT))]
 )
 
+const GetClientRect = user32.func('__stdcall', 'GetClientRect', 'int32', ['uintptr', koffi.out(koffi.pointer(RECT))])
+const MonitorFromWindow = user32.func('__stdcall', 'MonitorFromWindow', 'uintptr', ['uintptr', 'uint32'])
+const GetMonitorInfoW = user32.func('__stdcall', 'GetMonitorInfoW', 'int32', ['uintptr', koffi.inout(koffi.pointer(MONITORINFO))])
+const GetClassNameW = user32.func('__stdcall', 'GetClassNameW', 'int32', ['uintptr', koffi.out(koffi.pointer('uint16')), 'int32'])
+
 export const MapVirtualKeyW = user32.func(
   '__stdcall', 'MapVirtualKeyW', 'uint32', ['uint32', 'uint32']
 )
@@ -227,6 +236,24 @@ export function getForegroundWindowRect(): { x: number; y: number; w: number; h:
   const h = (r.bottom ?? 0) - (r.top ?? 0)
   if (w <= 0 || h <= 0) return null
   return { x: r.left ?? 0, y: r.top ?? 0, w, h }
+}
+
+/** Detect fullscreen on the foreground window's own monitor, including borderless games. */
+export function isForegroundFullscreen(): boolean {
+  const hwnd = Number(GetForegroundWindow())
+  if (!hwnd) return false
+  const monitor = MonitorFromWindow(hwnd, 0)
+  if (!monitor) return false
+  const info = { cbSize: koffi.sizeof(MONITORINFO), rcMonitor: {} as WindowRect, rcWork: {} as WindowRect, dwFlags: 0 }
+  const rect = {} as WindowRect
+  if (!GetMonitorInfoW(monitor, info) || !GetClientRect(hwnd, rect)) return false
+  const origin = { x: rect.left, y: rect.top }
+  if (!ClientToScreen(hwnd, origin)) return false
+  const name = new Uint16Array(256)
+  const length = Number(GetClassNameW(hwnd, name, name.length))
+  return coversMonitor({ left: origin.x, top: origin.y,
+    right: origin.x + rect.right - rect.left, bottom: origin.y + rect.bottom - rect.top },
+  info.rcMonitor, decodeWide(name, length))
 }
 
 export function getCaretScreenRect(): { x: number; y: number; w: number; h: number } | null {

@@ -55,6 +55,8 @@ export type HotkeyMode =
 export interface HotkeyConfig {
   keyboardEnabled: boolean
   mouseEnabled: boolean
+  keyboardInFullscreen: boolean
+  mouseInFullscreen: boolean
   mouseButton: 'left' | 'middle' | 'leftMiddle'
   mode: HotkeyMode
   /** hold / doubleTap 用 uiohook 的键名，例如 'RightControl'、'F2' */

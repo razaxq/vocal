@@ -205,6 +205,10 @@ function HotkeyTab({ cfg, patch }: TabProps): React.ReactElement {
             <Num value={h.doubleTapWindowMs} min={150} max={800} suffix="毫秒"
               onChange={(n) => patch({ hotkey: { ...nextHotkey, doubleTapWindowMs: n } })} />
           </Row>}
+          <Row wideLabel label="允许在全屏应用中使用">
+            <Toggle checked={h.keyboardInFullscreen} ariaLabel="键盘允许在全屏应用中使用"
+              onChange={(keyboardInFullscreen) => patch({ hotkey: { ...nextHotkey, keyboardInFullscreen } })} />
+          </Row>
           <Note>键盘录音时按 Esc 取消。</Note>
         </>}
       </Section>
@@ -229,6 +233,10 @@ function HotkeyTab({ cfg, patch }: TabProps): React.ReactElement {
               <span className="text-[12px] text-[var(--fg-muted)]">秒</span>
             </div>
             {delayError && <p role="alert" className="mt-1 text-[12px] text-[var(--danger)]">{delayError}</p>}
+          </Row>
+          <Row wideLabel label="允许在全屏应用中使用">
+            <Toggle checked={h.mouseInFullscreen} ariaLabel="鼠标允许在全屏应用中使用"
+              onChange={(mouseInFullscreen) => patch({ hotkey: { ...nextHotkey, mouseInFullscreen } })} />
           </Row>
           <Note>按住说话，松开结束；组合按键需同时按住。中键可能触发应用的滚动功能。</Note>
         </>}

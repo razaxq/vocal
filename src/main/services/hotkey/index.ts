@@ -42,16 +42,22 @@ export class HotkeyService {
   private cfg: HotkeyConfig | null = null
   private mouse: MouseHoldTrigger | undefined
   private mouseActive = false
+  private shortcutRegistered = false
+  private fullscreenTimer: ReturnType<typeof setInterval> | undefined
+  private blockedKey = false
 
-  constructor(private events: HotkeyEvents) {}
+  constructor(private events: HotkeyEvents, private isFullscreen: () => boolean) {}
 
   apply(cfg: HotkeyConfig): void {
     this.teardown()
     this.cfg = cfg
 
     if (cfg.keyboardEnabled && cfg.mode === 'toggle') {
-      const ok = globalShortcut.register(cfg.accelerator, () => this.toggle())
-      if (!ok) throw new Error(`热键 ${cfg.accelerator} 注册失败，可能已被其它程序占用`)
+      this.syncShortcut(true)
+      if (!cfg.keyboardInFullscreen) {
+        this.fullscreenTimer = setInterval(() => this.syncShortcut(), 250)
+        this.fullscreenTimer.unref?.()
+      }
       // keycode 置 0，下面 onKeyDown 里主键那条分支永远不会命中，
       // 但 Esc 取消仍然要挂上 —— 之前这里直接 return，导致 toggle 模式下
       // 根本没人监听 Esc，界面上的「Esc 取消」提示是个谎。
@@ -70,7 +76,7 @@ export class HotkeyService {
     if (cfg.mouseEnabled) {
       this.mouse = new MouseHoldTrigger(cfg.mouseHoldDelayMs, cfg.debounceMs, {
         onStart: () => {
-          if (this.active || !this.canStart()) return false
+          if (this.active || !this.canStart('mouse')) return false
           this.mouseActive = true
           this.lastTapAt = 0
           this.events.onStart()
@@ -104,7 +110,10 @@ export class HotkeyService {
     if (e.type === 8) this.mouse.up(e.button)
     else if (e.type === 11) this.mouse.cancelWaiting()
     else if (typeof e.x === 'number' && typeof e.y === 'number') {
-      if (e.type === 7) this.mouse.down(e.button, e.x, e.y)
+      if (e.type === 7) {
+        this.mouse.down(e.button, e.x, e.y)
+        if (!this.allowed('mouse')) this.mouse.cancelWaiting()
+      }
       else if (e.type === 9 || e.type === 10) this.mouse.move(e.x, e.y)
     }
   }
@@ -117,13 +126,19 @@ export class HotkeyService {
       this.armedByDoubleTap = false
       this.lastEndedAt = Date.now()
       this.events.onCancel()
+      this.syncShortcut()
       return
     }
     if (!this.keycode || e.keycode !== this.keycode || !this.cfg) return
+    if (!this.active && (this.blockedKey || !this.allowed('keyboard'))) {
+      this.blockedKey = true
+      this.lastTapAt = 0
+      return
+    }
 
     if (this.cfg.mode === 'hold') {
       if (this.active) return // 长按的自动重复
-      if (!this.canStart()) return
+      if (!this.canStart('keyboard')) return
       this.active = true
       this.mouse?.cancelWaiting()
       this.pressedAt = Date.now()
@@ -146,7 +161,7 @@ export class HotkeyService {
     }
     if (now - this.lastTapAt <= this.cfg.doubleTapWindowMs) {
       this.lastTapAt = 0
-      if (!this.canStart()) return
+      if (!this.canStart('keyboard')) return
       this.active = true
       this.mouse?.cancelWaiting()
       this.armedByDoubleTap = true
@@ -158,6 +173,7 @@ export class HotkeyService {
   }
 
   private onKeyUp = (e: { keycode: number }): void => {
+    if (e.keycode === this.keycode) this.blockedKey = false
     if (!this.cfg || this.cfg.mode !== 'hold') return
     if (!this.keycode || e.keycode !== this.keycode || !this.active) return
 
@@ -179,15 +195,33 @@ export class HotkeyService {
    * 语音输入的会话有真实开销（开麦、起会话、最后还要跑一遍识别），
    * 连续误触会让面板疯狂闪烁。
    */
-  private canStart(): boolean {
+  private allowed(source: 'keyboard' | 'mouse'): boolean {
+    if (!this.cfg) return false
+    return (source === 'keyboard' ? this.cfg.keyboardInFullscreen : this.cfg.mouseInFullscreen) || !this.isFullscreen()
+  }
+
+  private canStart(source: 'keyboard' | 'mouse'): boolean {
     if (!this.cfg || this.mouseActive) return false
-    return Date.now() - this.lastEndedAt >= this.cfg.debounceMs
+    return Date.now() - this.lastEndedAt >= this.cfg.debounceMs && this.allowed(source)
+  }
+
+  /** Release the OS shortcut while blocked, retaining it only to stop an active recording. */
+  private syncShortcut(strict = false): void {
+    if (!this.cfg?.keyboardEnabled || this.cfg.mode !== 'toggle') return
+    const wanted = this.active || this.allowed('keyboard')
+    if (!wanted && this.shortcutRegistered) {
+      globalShortcut.unregister(this.cfg.accelerator)
+      this.shortcutRegistered = false
+    } else if (wanted && !this.shortcutRegistered) {
+      this.shortcutRegistered = globalShortcut.register(this.cfg.accelerator, () => this.toggle())
+      if (!this.shortcutRegistered && strict) throw new Error(`热键 ${this.cfg.accelerator} 注册失败，可能已被其它程序占用`)
+    }
   }
 
   private toggle(): void {
     if (this.mouseActive) return
     if (!this.active) {
-      if (!this.canStart()) return
+      if (!this.canStart('keyboard')) { this.syncShortcut(); return }
       this.active = true
       this.mouse?.cancelWaiting()
       this.pressedAt = Date.now()
@@ -196,11 +230,15 @@ export class HotkeyService {
       this.active = false
       this.lastEndedAt = Date.now()
       this.events.onStop()
+      this.syncShortcut()
     }
   }
 
   teardown(): void {
+    if (this.fullscreenTimer !== undefined) clearInterval(this.fullscreenTimer)
+    this.fullscreenTimer = undefined
     globalShortcut.unregisterAll()
+    this.shortcutRegistered = false
     uIOhook.off('keydown', this.onKeyDown)
     uIOhook.off('keyup', this.onKeyUp)
     uIOhook.off('input', this.onMouseInput)
@@ -214,6 +252,7 @@ export class HotkeyService {
     this.armedByDoubleTap = false
     this.lastTapAt = 0
     this.keycode = 0
+    this.blockedKey = false
     this.cfg = null
   }
 

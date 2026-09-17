@@ -35,6 +35,8 @@ export const configSchema = z.object({
   hotkey: z.preprocess(migrateHotkeyConfig, z.object({
     keyboardEnabled: z.boolean().default(true),
     mouseEnabled: z.boolean().default(false),
+    keyboardInFullscreen: z.boolean().default(false),
+    mouseInFullscreen: z.boolean().default(false),
     mouseButton: z.enum(['left', 'middle', 'leftMiddle']).default('middle'),
     mode: z.enum(['hold', 'toggle', 'doubleTap']).default('hold'),
     // 必须是 uiohook 认识的键名。写错了要到注册热键那一刻才炸，所以在这里就挡住。

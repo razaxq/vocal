@@ -1,6 +1,6 @@
 {
   "name": "vocal",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "Vocal — Windows 桌面语音输入：按住说话，流式上屏，像输入法一样用。",
   "private": true,
   "author": {

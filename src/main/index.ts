@@ -15,6 +15,7 @@ import { TextInjector } from './services/injector'
 import { HotkeyService } from './services/hotkey'
 import { AsrEngine } from './services/asr/engine'
 import { ModelReloadQueue } from './services/asr/modelReloadQueue'
+import { isForegroundFullscreen } from './win32/user32'
 import { checkModels, resolveModelPaths, modelsRoot, modelInstallInfo } from './services/asr/models'
 import { modelsOf, deriveProfile, MODEL_NONE } from '@shared/modelRegistry'
 import { ModelDownloader } from './services/asr/downloader'
@@ -275,7 +276,7 @@ async function bootstrap(): Promise<void> {
     onStart: () => { if (!modelMaintenance && updater?.current.state !== 'installing') session.start() },
     onStop: () => session.stop(),
     onCancel: () => void session.cancel()
-  })
+  }, isForegroundFullscreen)
   try {
     hotkeys.apply(cfg.hotkey)
   } catch (e) {

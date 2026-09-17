@@ -49,6 +49,8 @@ test('旧键盘设置补全独立开关，保留按键、录音模式和其他�
   const cfg = configSchema.parse({ hotkey: { mode: 'doubleTap', key: 'AltRight' }, asr: { idleUnloadMin: 17 } })
   assert.equal(cfg.hotkey.keyboardEnabled, true)
   assert.equal(cfg.hotkey.mouseEnabled, false)
+  assert.equal(cfg.hotkey.keyboardInFullscreen, false)
+  assert.equal(cfg.hotkey.mouseInFullscreen, false)
   assert.equal(cfg.hotkey.mode, 'doubleTap')
   assert.equal(cfg.hotkey.key, 'AltRight')
   assert.equal(cfg.asr.idleUnloadMin, 17)
@@ -65,6 +67,11 @@ test('旧左右键模式迁移为仅中键，保留用户延迟，不重置整�
 })
 
 test('键鼠开关互相独立，支持左键、中键和左键加中键，延迟限制保持不变', () => {
+  for (const keyboardInFullscreen of [false, true]) for (const mouseInFullscreen of [false, true]) {
+    const cfg = configSchema.parse({ hotkey: { keyboardInFullscreen, mouseInFullscreen } })
+    assert.equal(cfg.hotkey.keyboardInFullscreen, keyboardInFullscreen)
+    assert.equal(cfg.hotkey.mouseInFullscreen, mouseInFullscreen)
+  }
   for (const keyboardEnabled of [true, false]) for (const mouseEnabled of [true, false]) for (const mouseButton of ['left', 'middle', 'leftMiddle']) {
     const cfg = configSchema.parse({ hotkey: { keyboardEnabled, mouseEnabled, mouseButton, mouseHoldDelayMs: 10000 } })
     assert.equal(cfg.hotkey.keyboardEnabled, keyboardEnabled)
