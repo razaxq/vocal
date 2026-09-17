@@ -8,6 +8,7 @@
 
 Settings::Settings(QString directory) : m_directory(std::move(directory)) {
     m_values = {
+        {"serviceEnabled", true},
         {"modelId", "paraformer-yue-offline"},
         {"deviceId", ""},
         {"keyboardEnabled", true},

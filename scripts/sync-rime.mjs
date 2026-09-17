@@ -1,7 +1,7 @@
 /** 固定到同一个上游提交，保留原始词典和许可，再生成完整检索词库。 */
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
-import { selectRimeWords } from '../src/shared/rimeDictionary.ts'
+import { selectRimeWords } from './dictionary/rime.mjs'
 
 const directory = new URL('../resources/dictionaries/rime-ice/', import.meta.url)
 const headers = { 'User-Agent': 'Vocal-dictionary-sync' }

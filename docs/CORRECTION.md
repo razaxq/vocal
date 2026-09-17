@@ -24,25 +24,11 @@ MacBERT 在当前例句上的效果更好。下载大小是实际 ONNX 文件加
 ## 本地运行
 
 ```powershell
-npm run models -- --model macbert4csc
-npm run models -- --model bert-chinese-int8
-npm run dev
+./native/scripts/dev.ps1 run
 ```
 
-在识别页切换纠错模型、保持雾凇词库开启，然后正常按快捷键说话。
-修改发生在本地工作区，尚未提交或发布时，已安装的版本不会获得这些改动。
-
-也可以只测试文本，不录音、不向其它窗口输入：
-
-```powershell
-npm run m1:correction
-npm run m1:correction -- "完全就是给拦柜用的"
-```
-
-两种模型依次执行，结果及耗时写入 `data/correction-report.json`。
-内置 13 句包含 3 个待纠错误句和 10 个正确句，用于功能调试，不代表通用准确率。
-当前本机测试：MacBERT 13/13 与预期一致；BERT 11/13，其中「拦柜→懒鬼」「高心→高兴」未改动。
-必须结合更多真实口述验证误改率，不能据此宣布某个模型准确率为 100%。
+在识别页下载并选择纠错模型。C++ 实现位于 `native/src/CorrectionWorker.cpp`，
+与流式和定稿分别在独立进程运行。详细样例及限制见 [原生验证记录](../native/VALIDATION.md)。
 
 ## 行为与限制
 
@@ -56,8 +42,8 @@ npm run m1:correction -- "完全就是给拦柜用的"
 ## 验证
 
 ```powershell
-npm test
-npm run build
-npm run m0:correction  # 真实 Electron 子进程、顺序、个人热词与故障回退
-npm run m0:hotwords    # 构建后的设置页切换与保存
+./native/scripts/dev.ps1 test
+./native/scripts/dev.ps1 migration-tests
 ```
+
+第二项需要先下载模型，使用公开音频和固定文本检查纠错、保护词与完整输出流程，不代表通用准确率。

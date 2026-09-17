@@ -113,12 +113,21 @@ QVariantList ModelManager::models(const QString &group) const {
     auto list = m_catalog.models(group);
     for (auto &value : list) {
         auto row = value.toMap();
+        const auto id = row["id"].toString();
+        const auto previous = m_finished.value(id);
+        for (auto it = previous.begin(); it != previous.end(); ++it)
+            row[it.key()] = it.value();
         if (row["id"].toString() == m_id) {
             row["phase"] = m_phase;
             row["percent"] = m_percent;
             row["received"] = m_received;
             row["total"] = m_total;
             row["error"] = m_error;
+        }
+        if (m_queue.contains(id)) {
+            row["phase"] = "queued";
+            row["queuePosition"] = m_queue.indexOf(id) + 1;
+            row["error"] = QString{};
         }
         qint64 bytes = 0;
         const auto entry = m_catalog.find(row["id"].toString());
@@ -131,18 +140,36 @@ QVariantList ModelManager::models(const QString &group) const {
     return list;
 }
 void ModelManager::download(const QString &id) {
-    if (busy()) {
-        emit failed("请等待当前模型任务完成");
+    if ((m_active && m_id == id) || m_queue.contains(id))
         return;
-    }
-    m_entry = m_catalog.find(id);
-    if (m_entry.isEmpty()) {
+    if (m_catalog.find(id).isEmpty()) {
         emit failed("未知模型");
         return;
     }
+    m_finished.remove(id);
+    m_queue.append(id);
+    emit changed();
+    startNext();
+}
+void ModelManager::startNext() {
+    if (m_active || m_queue.isEmpty())
+        return;
+    const auto id = m_queue.takeFirst();
+    m_entry = m_catalog.find(id);
     m_id = id;
+    m_active = true;
+    m_phase = "downloading";
     m_error.clear();
     m_percent = 0;
+    m_received = m_total = 0;
+    if (m_catalog.installed(m_entry)) {
+        m_phase = "done";
+        m_active = false;
+        emit changed();
+        emit completed(id);
+        QTimer::singleShot(0, this, &ModelManager::startNext);
+        return;
+    }
     QDir().mkpath(m_catalog.root());
     m_stage = std::make_unique<QTemporaryDir>(QDir(m_catalog.root()).filePath(".download-XXXXXX"));
     if (!m_stage->isValid()) {
@@ -286,17 +313,19 @@ void ModelManager::commit() {
         m_stage.reset();
         m_phase = "done";
         m_percent = 100;
+        m_active = false;
         emit changed();
         emit completed(m_id);
+        QTimer::singleShot(0, this, &ModelManager::startNext);
     } catch (const std::exception &error) {
         fail(QString::fromUtf8(error.what()));
     }
 }
-void ModelManager::cancel() {
-    m_phase = "cancelled";
+void ModelManager::abortActive() {
     if (m_reply) {
         auto *reply = m_reply.data();
         m_reply = nullptr;
+        disconnect(reply, nullptr, this, nullptr);
         reply->abort();
         reply->deleteLater();
     }
@@ -306,14 +335,33 @@ void ModelManager::cancel() {
     }
     m_file.close();
     m_stage.reset();
+    m_active = false;
+}
+void ModelManager::cancel(const QString &id) {
+    if (id.isEmpty())
+        m_queue.clear();
+    else if (m_queue.removeAll(id)) {
+        m_finished[id] = {{"phase", "cancelled"}};
+        emit changed();
+        return;
+    } else if (id != m_id || !m_active || m_phase == "deleting")
+        return;
+    m_phase = "cancelled";
+    abortActive();
+    m_finished[m_id] = {{"phase", "cancelled"}};
     emit changed();
+    if (!id.isEmpty())
+        QTimer::singleShot(0, this, &ModelManager::startNext);
 }
 void ModelManager::fail(const QString &message) {
-    cancel();
+    m_phase = "error";
+    abortActive();
     m_phase = "error";
     m_error = message;
+    m_finished[m_id] = {{"phase", "error"}, {"error", message}};
     emit changed();
     emit failed(message);
+    QTimer::singleShot(0, this, &ModelManager::startNext);
 }
 void ModelManager::remove(const QString &id) {
     if (busy()) {
@@ -332,6 +380,7 @@ void ModelManager::remove(const QString &id) {
         return;
     }
     m_id = id;
+    m_active = true;
     m_phase = "deleting";
     m_error.clear();
     emit changed();
@@ -341,7 +390,9 @@ void ModelManager::remove(const QString &id) {
             m_error = "删除失败，请先卸载正在使用的模型";
         } else
             m_phase = "done";
+        m_active = false;
         emit changed();
         emit completed(m_id);
+        QTimer::singleShot(0, this, &ModelManager::startNext);
     });
 }

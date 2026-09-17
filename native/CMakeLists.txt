@@ -50,11 +50,11 @@ target_compile_definitions(vocal-native PRIVATE VOCAL_APP_VERSION="${VOCAL_APP_V
 target_link_libraries(vocal-native PRIVATE vocal_core Qt6::Widgets Qt6::Quick Qt6::QuickControls2)
 qt_add_qml_module(vocal-native URI Vocal VERSION 1.0 QML_FILES qml/Main.qml qml/VoiceOverlay.qml)
 qt_add_resources(vocal-native branding PREFIX "/vocal" BASE "${CMAKE_CURRENT_SOURCE_DIR}/.."
-    FILES ../resources/icon.png ../resources/tray.png ../src/shared/changelog.json)
+    FILES ../resources/icon.png ../resources/tray.png ../resources/changelog.json)
 if(WIN32)
     configure_file(resources/app.rc.in app.rc @ONLY)
     target_sources(vocal-native PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/app.rc")
-    target_link_libraries(vocal-native PRIVATE dwmapi)
+    target_link_libraries(vocal-native PRIVATE dwmapi gdi32)
     # This is an interactive GUI app. Hide no window at process startup; the
     # Windows GUI subsystem prevents an extra console window instead.
     set_target_properties(vocal-native PROPERTIES WIN32_EXECUTABLE TRUE)

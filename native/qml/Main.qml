@@ -46,6 +46,28 @@ ApplicationWindow {
     function modelSize(bytes) {
         return bytes >= 1073741824 ? (bytes / 1073741824).toFixed(2) + " GB" : Math.round(bytes / 1048576) + " MB";
     }
+    function scrollSettings(event) {
+        const view = scroller.contentItem as Flickable;
+        const pixel = event.pixelDelta.y;
+        const steps = event.angleDelta.y;
+        if ((!pixel && !steps) || (event.modifiers & Qt.ControlModifier)) {
+            event.accepted = false;
+            return;
+        }
+        const end = Math.max(0, scroller.contentHeight - scroller.availableHeight);
+        const origin = wheelScroll.running ? wheelScroll.to : view.contentY;
+        const destination = Math.max(0, Math.min(end, (pixel ? view.contentY : origin) - (pixel || steps / 120 * 72)));
+        wheelScroll.stop();
+        if (pixel) {
+            // Touchpads already supply small, continuous deltas.
+            view.contentY = destination;
+        } else {
+            wheelScroll.from = view.contentY;
+            wheelScroll.to = destination;
+            wheelScroll.start();
+        }
+        event.accepted = true;
+    }
     component GreenProgress: ProgressBar {
         id: progress
         implicitHeight: 4
@@ -81,6 +103,7 @@ ApplicationWindow {
                 recording: tr("正在聆听…", "Listening…"),
                 recognizing: tr("正在整理…", "Finishing…"),
                 unloaded: tr("模型已休眠", "Models asleep"),
+                paused: tr("已暂停，模型已释放", "Paused · models unloaded"),
                 error: tr("需要处理", "Needs attention")
             })[controller.state] || controller.state;
     }
@@ -213,6 +236,9 @@ ApplicationWindow {
     component Select: ComboBox {
         id: select
         font.family: root.font.family
+        font.pixelSize: 13
+        opacity: enabled ? 1 : 0.5
+        objectName: "select-" + settingKey
         property string settingKey
         property var options: []
         model: options
@@ -236,24 +262,64 @@ ApplicationWindow {
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight
         }
-        indicator: Text {
-            font.family: root.font.family
-            text: "⌄"
-            color: root.subtle
-            x: select.width - 23
-            y: 7
+        indicator: Canvas {
+            width: 10
+            height: 6
+            x: select.width - width - 12
+            y: (select.height - height) / 2
+            property color ink: root.muted
+            onInkChanged: requestPaint()
+            rotation: select.popup.visible ? 180 : 0
+            onPaint: {
+                const ctx = getContext("2d");
+                ctx.reset();
+                ctx.strokeStyle = ink;
+                ctx.lineWidth = 1.5;
+                ctx.lineCap = "round";
+                ctx.lineJoin = "round";
+                ctx.beginPath();
+                ctx.moveTo(1, 1);
+                ctx.lineTo(5, 5);
+                ctx.lineTo(9, 1);
+                ctx.stroke();
+            }
         }
         background: Rectangle {
             radius: 8
             color: root.surface
-            border.color: select.activeFocus ? root.accent : root.line
+            border.color: select.activeFocus || select.popup.visible ? root.accent : root.line
         }
         delegate: ItemDelegate {
+            id: choice
             required property var modelData
             required property int index
-            width: select.width
+            width: select.popup.availableWidth
+            implicitHeight: 34
+            leftPadding: 10
+            rightPadding: 28
             text: modelData.label
+            font: select.font
             highlighted: select.highlightedIndex === index
+            contentItem: Text {
+                text: choice.text
+                font: choice.font
+                color: select.currentIndex === choice.index ? root.accent : root.fg
+                elide: Text.ElideRight
+                verticalAlignment: Text.AlignVCenter
+            }
+            background: Rectangle {
+                radius: 6
+                color: select.currentIndex === choice.index ? root.accentSoft : choice.highlighted || choice.hovered ? root.hover : "transparent"
+            }
+            Text {
+                anchors.right: parent.right
+                anchors.rightMargin: 10
+                anchors.verticalCenter: parent.verticalCenter
+                visible: select.currentIndex === choice.index
+                text: "✓"
+                color: root.accent
+                font.pixelSize: 13
+            }
         }
         popup: Popup {
             y: select.height + 3
@@ -270,6 +336,8 @@ ApplicationWindow {
                 implicitHeight: contentHeight
                 model: select.popup.visible ? select.delegateModel : null
                 currentIndex: select.highlightedIndex
+                boundsBehavior: Flickable.StopAtBounds
+                boundsMovement: Flickable.StopAtBounds
                 ScrollIndicator.vertical: ScrollIndicator {}
             }
         }
@@ -397,8 +465,20 @@ ApplicationWindow {
         BoundedScroll {
             Layout.fillWidth: true
             Layout.preferredHeight: 96
+            wheelEnabled: false
+            WheelHandler {
+                target: null
+                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                onWheel: event => root.scrollSettings(event)
+            }
             TextArea {
                 id: draft
+                objectName: "words-" + words.settingKey
+                WheelHandler {
+                    target: null
+                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                    onWheel: event => root.scrollSettings(event)
+                }
                 font.family: root.font.family
                 wrapMode: TextEdit.Wrap
                 color: root.fg
@@ -535,7 +615,7 @@ ApplicationWindow {
                         Action {
                             visible: modelRow.downloading
                             text: root.tr("取消", "Cancel")
-                            onClicked: root.controller.cancelDownload()
+                            onClicked: root.controller.cancelDownload(modelRow.modelData.id)
                         }
                         Label {
                             font.family: root.font.family
@@ -568,6 +648,7 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             from: 0
                             to: 100
+                            visible: modelRow.modelData.phase !== "queued"
                             value: modelRow.modelData.phase !== "downloading" || !Number(modelRow.modelData.total) ? 100 : Number(modelRow.modelData.percent || 0)
                         }
                         RowLayout {
@@ -577,7 +658,7 @@ ApplicationWindow {
                                 font.pixelSize: 11
                                 color: root.subtle
                                 Layout.fillWidth: true
-                                text: modelRow.modelData.phase === "extracting" ? root.tr("解压中", "Extracting") : modelRow.modelData.phase === "verifying" ? root.tr("校验中", "Verifying") : modelRow.modelData.phase === "queued" ? root.tr("排队中", "Queued") : root.tr("下载中", "Downloading")
+                                text: modelRow.modelData.phase === "extracting" ? root.tr("解压中", "Extracting") : modelRow.modelData.phase === "verifying" ? root.tr("校验中", "Verifying") : modelRow.modelData.phase === "queued" ? root.tr("排队中 · 第 ", "Queued · #") + modelRow.modelData.queuePosition : root.tr("下载中", "Downloading")
                             }
                             Label {
                                 visible: modelRow.modelData.phase === "downloading" && Number(modelRow.modelData.total) > 0
@@ -718,6 +799,22 @@ ApplicationWindow {
                 Item {
                     Layout.fillHeight: true
                 }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 12
+                    Layout.rightMargin: 6
+                    Label {
+                        text: root.tr("语音输入", "Voice input")
+                        font: root.font
+                        color: root.fg
+                        Layout.fillWidth: true
+                    }
+                    Toggle {
+                        objectName: "serviceToggle"
+                        settingKey: "serviceEnabled"
+                        Accessible.name: root.tr("启用语音输入", "Enable voice input")
+                    }
+                }
                 Label {
                     font.family: root.font.family
                     text: root.status()
@@ -790,28 +887,7 @@ ApplicationWindow {
                 WheelHandler {
                     target: null
                     acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                    onWheel: event => {
-                        const view = scroller.contentItem as Flickable;
-                        const pixel = event.pixelDelta.y;
-                        const steps = event.angleDelta.y;
-                        if ((!pixel && !steps) || (event.modifiers & Qt.ControlModifier)) {
-                            event.accepted = false;
-                            return;
-                        }
-                        const end = Math.max(0, scroller.contentHeight - scroller.availableHeight);
-                        const origin = wheelScroll.running ? wheelScroll.to : view.contentY;
-                        const destination = Math.max(0, Math.min(end, (pixel ? view.contentY : origin) - (pixel || steps / 120 * 72)));
-                        wheelScroll.stop();
-                        if (pixel) {
-                            // Touchpads already supply small, continuous deltas.
-                            view.contentY = destination;
-                        } else {
-                            wheelScroll.from = view.contentY;
-                            wheelScroll.to = destination;
-                            wheelScroll.start();
-                        }
-                        event.accepted = true;
-                    }
+                    onWheel: event => root.scrollSettings(event)
                 }
                 NumberAnimation {
                     id: wheelScroll
@@ -1100,6 +1176,11 @@ ApplicationWindow {
                     Layout.preferredHeight: 120
                     TextArea {
                         id: prompt
+                        WheelHandler {
+                            target: null
+                            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                            onWheel: event => root.scrollSettings(event)
+                        }
                         font.family: root.font.family
                         text: root.controller.settings.consolidatePrompt
                         wrapMode: TextEdit.Wrap
@@ -1199,6 +1280,7 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Action {
                         text: root.controller.testing ? root.tr("停止测试", "Stop test") : root.tr("测试麦克风", "Test microphone")
+                        enabled: root.controller.serviceEnabled
                         onClicked: root.controller.toggleMicTest()
                     }
                     GreenProgress {
@@ -1210,7 +1292,7 @@ ApplicationWindow {
                 RowLayout {
                     Action {
                         text: root.controller.recording ? root.tr("结束录音", "Finish recording") : root.tr("试说一句", "Try dictation")
-                        enabled: root.controller.state !== "recognizing"
+                        enabled: root.controller.serviceEnabled && root.controller.state !== "recognizing"
                         onClicked: root.controller.toggleRecording()
                     }
                     Action {

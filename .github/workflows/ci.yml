@@ -1,4 +1,4 @@
-# Qt 构建/测试/打包；迁移期间同时保留旧 Electron 回归检查。
+# Qt 构建、测试和打包，以及词库生成工具校验。
 name: ci
 
 on:
@@ -17,19 +17,13 @@ concurrency:
 jobs:
   native:
     uses: ./.github/workflows/native-build.yml
-  check:
+  dictionary-tools:
     runs-on: windows-latest
     steps:
-      # v7 跑在 Node 24 上。v4 系列还是 Node 20，GitHub 已经在弃用，
-      # 每次跑都会刷一条 deprecation 警告（只是警告，不影响结果）
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
-      - run: npm run typecheck
+      - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm test
-      - run: npm run build
-      - run: npm run m0:capture
-      - run: npm run m0:hotwords

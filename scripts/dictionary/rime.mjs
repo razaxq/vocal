@@ -1,9 +1,9 @@
 /** 完整保留有效词条及多音读法，词频只用于候选排序。 */
-export function selectRimeWords(text: string): { words: string[]; readings: string[]; eligibleCount: number; date: string } {
+export function selectRimeWords(text) {
   if (!text.includes('# Rime dictionary') || !text.includes('\n...')) throw new Error('不是 Rime 词典')
   const date = text.match(/^version:\s*"?(\d{4}-\d{2}-\d{2})/m)?.[1]
   if (!date) throw new Error('词典缺少版本日期')
-  const entries = new Map<string, { weight: number; readings: Set<string> }>()
+  const entries = new Map()
   let data = false
   for (const line of text.split(/\r?\n/)) {
     if (line.trim() === '...') { data = true; continue }
@@ -14,7 +14,7 @@ export function selectRimeWords(text: string): { words: string[]; readings: stri
         !reading || !/^[a-z]+(?: [a-z]+)*$/.test(reading) || !weight || !/^\d+(?:\.\d+)?$/.test(weight)) continue
     const score = Number(weight)
     if (!Number.isFinite(score)) continue
-    const entry = entries.get(word) ?? { weight: score, readings: new Set<string>() }
+    const entry = entries.get(word) ?? { weight: score, readings: new Set() }
     entry.weight = Math.max(entry.weight, score)
     entry.readings.add(reading)
     entries.set(word, entry)

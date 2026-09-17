@@ -36,6 +36,19 @@ foreach ($name in @('vocal-native.exe','sherpa-onnx-c-api.dll','onnxruntime.dll'
 }
 & "$QtRoot/bin/windeployqt.exe" --release --qmldir "$repo/native/qml" --no-translations --no-ffmpeg --exclude-plugins ffmpegmediaplugin --no-opengl-sw --verbose 0 "$stage/vocal-native.exe"
 if ($LASTEXITCODE) { throw 'Qt deployment failed' }
+# Keep Qt's plugin categories together instead of scattering them next to the EXE.
+$pluginRoot = Join-Path $stage 'plugins'
+New-Item -ItemType Directory -Path $pluginRoot -Force | Out-Null
+foreach ($category in Get-ChildItem -LiteralPath "$QtRoot/plugins" -Directory) {
+    $deployed = Join-Path $stage $category.Name
+    if (Test-Path -LiteralPath $deployed) {
+        $resolved = (Resolve-Path -LiteralPath $deployed).Path
+        if (!(($resolved + '\').StartsWith($stage + '\', [StringComparison]::OrdinalIgnoreCase))) {
+            throw "Plugin path outside package stage: $resolved"
+        }
+        Move-Item -LiteralPath $resolved -Destination (Join-Path $pluginRoot $category.Name)
+    }
+}
 $dictionary = Join-Path $stage 'resources/dictionaries/rime-ice'
 New-Item -ItemType Directory -Path $dictionary -Force | Out-Null
 foreach ($name in @('catalog.json','LICENSE','SOURCE.md')) {
@@ -54,7 +67,7 @@ Copy-Item -LiteralPath (Join-Path (Split-Path $Toolchain) 'licenses') -Destinati
 New-Item -ItemType Directory -Path "$licenses/qt-sbom" -Force | Out-Null
 Get-ChildItem -LiteralPath "$QtRoot/sbom" -Filter '*.spdx.json' | Copy-Item -Destination "$licenses/qt-sbom"
 Copy-Item -LiteralPath "$build/native-build.json" -Destination "$stage/native-release.json"
-"[Paths]`nPrefix=.`nPlugins=.`nQmlImports=qml`n" | Set-Content "$stage/qt.conf" -Encoding ascii
+"[Paths]`nPrefix=.`nPlugins=plugins`nQmlImports=qml`n" | Set-Content "$stage/qt.conf" -Encoding ascii
 $uninstallLines = @()
 foreach ($file in Get-ChildItem -LiteralPath $stage -File -Recurse) {
     $relative = $file.FullName.Substring($stage.Length + 1).Replace('$', '$$')
@@ -69,7 +82,7 @@ $uninstallLines | Set-Content "$stage/uninstall-files.nsh" -Encoding utf8
 if ($LASTEXITCODE) { throw 'Archive creation failed' }
 $artifacts = @($archive)
 if ($Installer) {
-    & $NsisPath /V2 "/DAPP_DIR=$stage" "/DOUTPUT=$installerFile" "/DVERSION=$version" "/DPRODUCT_VERSION=$($metadata.productVersion)" "$repo/native/installer/windows.nsi"
+    & $NsisPath /V2 /INPUTCHARSET UTF8 "/DAPP_DIR=$stage" "/DOUTPUT=$installerFile" "/DVERSION=$version" "/DPRODUCT_VERSION=$($metadata.productVersion)" "$repo/native/installer/windows.nsi"
     if ($LASTEXITCODE) { throw 'Native installer build failed' }
     $artifacts += $installerFile
 }

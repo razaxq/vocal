@@ -10,10 +10,10 @@ Vocal 于 2026-09-16 将基础词库转换为完整词条与多音读法对应�
 
 ## 获取对应源码
 
-在 [Vocal 发布页](https://github.com/razaxq/vocal/releases) 选择与软件版本相同的标签，下载该页免费提供的 **Source code (zip)** 或 **Source code (tar.gz)**。其中包含原始词典、许可证、`scripts/sync-rime.mjs`、`src/shared/rimeDictionary.ts` 和依赖清单。安装目录内的应用许可为 `resources/licenses/Vocal-MIT.txt`。
+在 [Vocal 发布页](https://github.com/razaxq/vocal/releases) 选择与软件版本相同的标签，下载该页免费提供的 **Source code (zip)** 或 **Source code (tar.gz)**。其中包含原始词典、许可证、`scripts/sync-rime.mjs`、`scripts/dictionary/rime.mjs` 和依赖清单。安装目录内的应用许可为 `licenses/Vocal-MIT.txt`。
 
 单独更新的词表可按 `catalog.json` 的 `source.revision`，从 `https://raw.githubusercontent.com/iDvel/rime-ice/<revision>/cn_dicts/base.dict.yaml` 获取精确的上游原始文件，并用 `source.sha256` 校验；Vocal 仓库的 [词库历史](https://github.com/razaxq/vocal/commits/main/resources/dictionaries/rime-ice) 保留对应的原始数据和生成代码。`npm run sync:rime` 默认同步上游最新版本；重现旧词表应对该快照的原始词典使用 `selectRimeWords`，不要重新同步最新上游。
 
-生成方法：运行 `npm run sync:rime`。完整读取基础词库的有效数据行，按词去重，保留不同读音，按最高词频排序（同频按 Unicode 顺序）。`words` 与 `readings` 按位置对应，读音以空格分隔音节、多音以 `|` 分隔。当前快照包含 541,809 个不同词条；不再按长度或前 500 词截取。为防止引擎语法注入，更新时仍校验字符、长度和读音格式。代码见 `scripts/sync-rime.mjs` 和 `src/shared/rimeDictionary.ts`。
+生成方法：运行 `npm run sync:rime`。完整读取基础词库的有效数据行，按词去重，保留不同读音，按最高词频排序（同频按 Unicode 顺序）。`words` 与 `readings` 按位置对应，读音以空格分隔音节、多音以 `|` 分隔。当前快照包含 541,809 个不同词条；不再按长度或前 500 词截取。为防止引擎语法注入，更新时仍校验字符、长度和读音格式。代码见 `scripts/sync-rime.mjs` 和 `scripts/dictionary/rime.mjs`。
 
 这是完整的 `base.dict.yaml` 基础词库，不包含雾凇的扩展库、腾讯库或英文库，不代表当前网络热度。定稿时按本句读音检索候选，不把全部词条同时加权。个人词语可在 Vocal 的「个人热词」中添加。

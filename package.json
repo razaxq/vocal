@@ -1,77 +1,26 @@
 {
   "name": "vocal",
-  "version": "1.0.0",
-  "description": "Vocal — Windows 桌面语音输入：按住说话，流式上屏，像输入法一样用。",
+  "version": "1.0.1",
+  "description": "Vocal — C++ / Qt Quick 本地语音输入",
   "private": true,
   "author": {
     "name": "Ramos",
     "url": "https://blog.dtft.net/about/"
   },
   "homepage": "https://blog.dtft.net/about/",
-  "//repository": "electron-builder 和 electron-updater 都从这里推断 GitHub Releases 地址，改仓库名 / 改用户名时这里必须跟着改，否则自动更新会静默失效。",
   "repository": {
     "type": "git",
     "url": "https://github.com/razaxq/vocal.git"
   },
   "type": "module",
-  "main": "out/main/index.js",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "dev": "electron-vite dev",
-    "dev:watch": "electron-vite dev --watch",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "lint": "eslint .",
-    "build": "npm run typecheck && electron-vite build",
-    "models": "node scripts/fetch-models.mjs",
-    "models:list": "node scripts/fetch-models.mjs --list",
-    "sync:rime": "node --experimental-strip-types scripts/sync-rime.mjs",
-    "pack": "npm run build && electron-builder --win --dir",
-    "dist": "npm run build && electron-builder --win",
-    "release": "npm run build && electron-builder --win --publish always",
-    "test": "node --experimental-strip-types --test \"src/**/*.test.ts\"",
-    "m0:native": "electron scripts/m0/index.cjs --check=native",
-    "m0:capture": "electron scripts/m0/capture.cjs",
-    "m0:hotwords": "electron scripts/m0/hotwords.cjs",
-    "m1:hotwords": "node scripts/m0/hotword-asr.mjs",
-    "m0:focus": "electron scripts/m0/index.cjs --check=focus",
-    "m0:inject": "electron scripts/m0/index.cjs --check=inject",
-    "m0:roundtrip": "electron scripts/m0/index.cjs --check=roundtrip",
-    "m1:asr": "electron scripts/m0/asr.cjs",
-    "m1:correction": "node --experimental-strip-types scripts/m0/correction-models.mjs",
-    "m0:correction": "electron scripts/m0/correction.cjs"
-  },
-  "dependencies": {
-    "electron-store": "^11.0.2",
-    "electron-updater": "^6.8.9",
-    "koffi": "^3.2.1",
-    "onnxruntime-node": "1.30.0",
-    "pinyin-pro": "^3.29.4",
-    "semver": "^7.8.5",
-    "sherpa-onnx-node": "^1.13.8",
-    "tar-stream": "^3.2.1",
-    "uiohook-napi": "^1.5.5",
-    "unbzip2-stream": "^1.4.3",
-    "yauzl": "^3.4.0",
-    "zod": "^4.1.12"
-  },
-  "devDependencies": {
-    "@tailwindcss/vite": "^4.3.3",
-    "@types/node": "^22.20.2",
-    "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
-    "@types/semver": "^7.8.0",
-    "@types/yauzl": "^3.4.0",
-    "@vitejs/plugin-react": "^5.2.0",
-    "electron": "^44.3.0",
-    "electron-builder": "^26.15.3",
-    "electron-vite": "^5.0.0",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0",
-    "tailwindcss": "^4.3.3",
-    "typescript": "^5.9.3",
-    "vite": "^7.3.6",
-    "zustand": "^5.0.15"
+    "dev": "powershell -NoProfile -ExecutionPolicy Bypass -File native/scripts/dev.ps1 run",
+    "build": "powershell -NoProfile -ExecutionPolicy Bypass -File native/scripts/dev.ps1 build",
+    "test": "node --test scripts/dictionary/*.test.mjs",
+    "test:native": "powershell -NoProfile -ExecutionPolicy Bypass -File native/scripts/dev.ps1 test",
+    "sync:rime": "node scripts/sync-rime.mjs"
   }
 }

@@ -45,6 +45,8 @@ with tempfile.TemporaryDirectory(prefix='vocal-deployment-') as temp:
     assert (dist / f'Vocal-Native-Setup-{version}.exe').is_file()
     assert (directory / 'resources/dictionaries/rime-ice/catalog.json').is_file()
     assert (directory / 'licenses/LGPL-3.0-only.txt').is_file()
+    assert (directory / 'plugins/platforms/qwindows.dll').is_file()
+    assert not (directory / 'platforms').exists()
     app = directory / 'vocal-native.exe'
 
     def run(arguments, name):

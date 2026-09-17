@@ -15,9 +15,9 @@ class ModelManager : public QObject {
     explicit ModelManager(QString root, QObject *parent = nullptr, QJsonObject registry = {});
     ~ModelManager() override;
     QVariantList models(const QString &group) const;
-    bool busy() const { return m_reply || m_tar.state() != QProcess::NotRunning || m_phase == "deleting"; }
+    bool busy() const { return m_active || !m_queue.isEmpty(); }
     void download(const QString &id);
-    void cancel();
+    void cancel(const QString &id = {});
     void remove(const QString &id);
   signals:
     void changed();
@@ -25,6 +25,8 @@ class ModelManager : public QObject {
     void failed(const QString &message);
 
   private:
+    void startNext();
+    void abortActive();
     void next();
     void extractNext();
     void commit();
@@ -38,6 +40,9 @@ class ModelManager : public QObject {
     QJsonObject m_entry;
     QList<QJsonObject> m_downloads;
     QStringList m_extract;
+    QStringList m_queue;
+    QMap<QString, QVariantMap> m_finished;
+    bool m_active = false;
     QString m_id, m_phase, m_error, m_archive, m_extractOutput;
     int m_index = 0;
     double m_percent = 0;

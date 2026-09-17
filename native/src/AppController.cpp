@@ -35,7 +35,7 @@ AppController::AppController(QString dataDirectory, QString modelDirectory, bool
       m_desktop(m_settings.directory()) {
     connect(this, &AppController::modelsChanged, this, &AppController::refreshModelRows);
     refreshModelRows();
-    m_triggers.configure(m_settings.values());
+    configureTriggers();
     m_uptime.start();
     m_resourceTime.start();
     connect(&m_triggers, &TriggerController::pressed, this, [this] { start(true); });
@@ -187,9 +187,9 @@ AppController::AppController(QString dataDirectory, QString modelDirectory, bool
     });
     connect(&m_manager, &ModelManager::completed, this, [this](const QString &id) {
         const auto pending = m_pendingSelection;
-        m_pendingSelection.clear();
         for (auto it = pending.begin(); it != pending.end(); ++it)
             if (it.value() == id && m_catalog.installed(m_catalog.find(id))) {
+                m_pendingSelection.remove(it.key());
                 if (m_settings.values()[it.key()] == id)
                     loadRole(it.key());
                 else
@@ -242,7 +242,7 @@ AppController::AppController(QString dataDirectory, QString modelDirectory, bool
     }
     if (!m_settings.loadError().isEmpty())
         m_error = m_settings.loadError();
-    m_tick.setInterval(100);
+    m_tick.setInterval(serviceEnabled() ? 100 : 2000);
     connect(&m_tick, &QTimer::timeout, this, [this] {
         if (m_resourceTime.elapsed() >= 2000)
             sampleResources();
@@ -298,6 +298,10 @@ void AppController::refreshModelRows() {
     m_punctuationRows.update(m_manager.models("punct"));
 }
 void AppController::loadRole(const QString &key) {
+    if (!serviceEnabled()) {
+        updateState();
+        return;
+    }
     auto *worker = key == "modelId" ? &m_offline : key == "streamingModel" ? &m_stream : &m_corrector;
     m_loadingRoles = true;
     worker->stop();
@@ -323,7 +327,9 @@ void AppController::reloadModel() {
 void AppController::updateState() {
     if (m_loadingRoles)
         return;
-    if (m_recording)
+    if (!serviceEnabled())
+        m_state = "paused";
+    else if (m_recording)
         m_state = "recording";
     else if (m_session)
         m_state = "recognizing";
@@ -338,12 +344,16 @@ void AppController::updateState() {
 }
 void AppController::armIdle() {
     const int minutes = m_settings.values()["idleUnloadMin"].toInt(10);
-    if (minutes > 0 && !m_session)
+    if (serviceEnabled() && minutes > 0 && !m_session)
         m_idle.start(minutes * 60000);
     else
         m_idle.stop();
 }
 void AppController::setSetting(const QString &key, const QVariant &value) {
+    if (key == "serviceEnabled") {
+        setServiceEnabled(value.toBool());
+        return;
+    }
     const auto json = QJsonValue::fromVariant(value);
     if (m_settings.values()[key] == json)
         return;
@@ -374,7 +384,7 @@ void AppController::setSetting(const QString &key, const QVariant &value) {
         emit changed();
         return;
     }
-    m_triggers.configure(m_settings.values());
+    configureTriggers();
     emit settingsChanged();
     if (model)
         loadRole(key);
@@ -399,6 +409,7 @@ void AppController::selectModel(const QString &role, const QString &id) {
     if (!valid)
         return;
     if (id == "none" || m_catalog.installed(m_catalog.find(id))) {
+        m_pendingSelection.remove(role);
         if (group != "punct") {
             auto *worker = role == "modelId" ? &m_offline : role == "streamingModel" ? &m_stream : &m_corrector;
             if (m_settings.values()[role] == id && id != "none" &&
@@ -437,9 +448,58 @@ void AppController::deleteModel(const QString &id) {
     m_manager.remove(id);
     updateState();
 }
-void AppController::cancelDownload() {
-    m_pendingSelection.clear();
-    m_manager.cancel();
+void AppController::cancelDownload(const QString &id) {
+    for (auto it = m_pendingSelection.begin(); it != m_pendingSelection.end();) {
+        if (id.isEmpty() || it.value() == id)
+            it = m_pendingSelection.erase(it);
+        else
+            ++it;
+    }
+    m_manager.cancel(id);
+}
+void AppController::configureTriggers() {
+    auto config = m_settings.values();
+    if (!serviceEnabled()) {
+        config["keyboardEnabled"] = false;
+        config["mouseEnabled"] = false;
+    }
+    m_triggers.configure(config);
+}
+void AppController::setServiceEnabled(bool enabled) {
+    if (enabled == serviceEnabled())
+        return;
+    QString error;
+    if (!m_settings.set("serviceEnabled", enabled, &error)) {
+        m_error = error;
+        emit changed();
+        return;
+    }
+    if (!enabled) {
+        cancelRecording();
+        m_testAudio.stop();
+        m_testing = false;
+        m_level = m_testLevel = 0;
+        m_idle.stop();
+        m_loadingRoles = true;
+        m_offline.stop();
+        m_stream.stop();
+        m_corrector.stop();
+        m_loadingRoles = false;
+        for (const auto &path : m_abandonedAudio)
+            QFile::remove(path);
+        m_abandonedAudio.clear();
+        m_tick.setInterval(2000);
+        updateState();
+        emit levelChanged();
+        emit modelsChanged();
+        sampleResources();
+    } else {
+        m_error.clear();
+        m_tick.setInterval(100);
+        reloadModel();
+    }
+    configureTriggers();
+    emit settingsChanged();
 }
 bool AppController::updateOverlayPosition() {
     const auto caret = m_settings.values()["followCaret"].toBool(true) ? m_platform->caretRect() : QRect{};
@@ -463,7 +523,7 @@ bool AppController::updateOverlayPosition() {
     return false;
 }
 void AppController::start(bool inject) {
-    if (m_session)
+    if (!serviceEnabled() || m_session)
         return;
     if (m_state == "unloaded" || (!m_offline.ready() && m_offline.state() != "loading"))
         reloadModel();
@@ -780,7 +840,7 @@ void AppController::toggleRecording() {
         start(false);
 }
 void AppController::transcribeForTest(const QString &path, int rate, int segments, int releaseDelayMs) {
-    if (m_session || !m_offline.ready())
+    if (!serviceEnabled() || m_session || !m_offline.ready())
         return;
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly) || file.size() > qint64(rate) * 120 * 4 || file.size() % 4) {
@@ -826,7 +886,7 @@ void AppController::transcribeForTest(const QString &path, int rate, int segment
         release();
 }
 void AppController::toggleMicTest() {
-    if (m_session)
+    if (!serviceEnabled() || m_session)
         return;
     if (m_testing) {
         m_testAudio.stop();
@@ -960,7 +1020,7 @@ void AppController::sampleResources() {
     emit resourcesChanged();
 }
 QVariantList AppController::changelog() const {
-    QFile file(":/vocal/src/shared/changelog.json");
+    QFile file(":/vocal/resources/changelog.json");
     if (!file.open(QIODevice::ReadOnly))
         return {};
     return QJsonDocument::fromJson(file.readAll()).array().toVariantList();

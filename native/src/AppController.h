@@ -30,6 +30,7 @@ class AppController : public QObject {
     Q_PROPERTY(QString error READ error NOTIFY changed)
     Q_PROPERTY(bool recording READ recording NOTIFY changed)
     Q_PROPERTY(bool sessionActive READ sessionActive NOTIFY changed)
+    Q_PROPERTY(bool serviceEnabled READ serviceEnabled NOTIFY settingsChanged)
     Q_PROPERTY(double level READ level NOTIFY levelChanged)
     Q_PROPERTY(double testLevel READ testLevel NOTIFY levelChanged)
     Q_PROPERTY(bool testing READ testing NOTIFY changed)
@@ -61,6 +62,7 @@ class AppController : public QObject {
     QString error() const { return m_error; }
     bool recording() const { return m_recording; }
     bool sessionActive() const { return m_session; }
+    bool serviceEnabled() const { return m_settings.values()["serviceEnabled"].toBool(true); }
     double level() const { return m_level; }
     double testLevel() const { return m_testLevel; }
     bool testing() const { return m_testing; }
@@ -85,7 +87,8 @@ class AppController : public QObject {
     Q_INVOKABLE void reloadModel();
     Q_INVOKABLE void selectModel(const QString &role, const QString &id);
     Q_INVOKABLE void deleteModel(const QString &id);
-    Q_INVOKABLE void cancelDownload();
+    Q_INVOKABLE void cancelDownload(const QString &id = {});
+    Q_INVOKABLE void setServiceEnabled(bool enabled);
     Q_INVOKABLE void openModelDirectory();
     Q_INVOKABLE void clearHistory();
     Q_INVOKABLE void deleteHistory(int index);
@@ -118,6 +121,7 @@ class AppController : public QObject {
     };
     QVariantList modelRows(const QString &group, const QString &key, const WorkerProcess &worker) const;
     void refreshModelRows();
+    void configureTriggers();
     void loadRole(const QString &key);
     void updateState();
     void armIdle();

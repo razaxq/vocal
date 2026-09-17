@@ -1,57 +1,50 @@
 # 开发指南
 
+当前应用使用 C++20 / Qt Quick。Windows 工具链为 Qt 6.8.3、MinGW 13.1、sherpa-onnx 1.13.8。
+
 ## 环境与运行
 
-在 Windows x64 环境中使用 Node.js 22 或更新版本。
-
 ```powershell
-npm ci
-npm run dev
+./native/scripts/setup.ps1
+./native/scripts/dev.ps1 run
 ```
 
-首次运行可在设置的「识别」页下载模型，也可以执行 `npm run models` 下载默认模型组合。
-模型解压使用项目内的解压逻辑，支持纯 JavaScript 回退。
+重建前从托盘退出原生预览。首次运行在识别页下载模型；调试配置位于 `data/native-preview`，模型位于 `data/models`。
 
 ```powershell
-npm run typecheck  # 类型检查
-npm test           # 单元测试，不需要下载识别模型
-npm run build      # 构建应用
-npm run pack       # 生成解包后的 Windows 应用
-npm run dist       # 生成安装包和便携包，输出到 release/
+./native/scripts/dev.ps1 test             # C++ 测试
+./native/scripts/dev.ps1 migration-tests  # 已下载模型的完整流程验证
+./native/scripts/package.ps1 -Installer  # 本地安装包，需 NSIS
 ```
 
-依赖包含预编译的原生模块。请使用 `npm ci` 安装，并保留锁文件中的平台可选依赖。
+详细工具路径、独立打包和验证边界见 [原生开发指南](../native/README.md) 与 [验证记录](../native/VALIDATION.md)。
 
-## 主要模块
+## 主要目录
 
-本地纠错模型、文本对比与调试命令见 [同音纠错](CORRECTION.md)。
-
-| 模块 | 实现 |
+| 目录 | 内容 |
 |---|---|
-| 桌面界面 | Electron、React、electron-vite |
-| 语音识别 | sherpa-onnx；默认流式 Zipformer 中文、定稿 Zipformer 中英 |
-| 标点 | CT-Transformer |
-| 进程 | 主进程、界面进程，以及独立的流式与定稿识别进程 |
-| 文字输入 | Windows SendInput 与剪贴板回退 |
-| 快捷键 | uiohook-napi、Electron globalShortcut |
-| 配置与历史 | electron-store、JSONL |
+| `native/src` | C++ 控制器、录音、模型进程、系统触发、文字输入及更新 |
+| `native/qml` | Qt Quick 设置界面和录音悬浮条 |
+| `native/tests` | C++、识别流程、发布和独立部署测试 |
+| `native/scripts` | 开发环境、构建、打包和发布脚本 |
+| `scripts/models.json` | 模型登记及固定下载地址 |
+| `scripts/dictionary` | 雾凇派生词库生成工具与校验 |
+| `resources` | 更新日志、图标和完整词库 |
+| `build` | 图标源文件及 ICO，不是编译输出 |
+| `data` | 本机工具链、模型、测试证据和构建产物，不进 Git |
 
-模型列表和下载地址位于 `scripts/models.json`。修改默认模型时，需要同步
-`src/shared/modelRegistry.ts` 和 `scripts/fetch-models.mjs`。
-应用内更新日志位于 `src/shared/changelog.json`，发布时应与 `package.json` 的版本号保持一致。
+版本号来自根目录 `package.json`，更新日志位于 `resources/changelog.json`。
+根目录 npm 不含应用依赖，仅提供命令入口及无外部依赖的词库工具。
+`native/dependencies` 的独立锁文件仅用于取得原生推理 DLL，不包含 Electron。
 
-## 更多文档
+## 词库维护
 
-- [架构设计](DESIGN.md)
-- [路线图与验证记录](ROADMAP.md)
-- [技术决策](adr/)
-- [发布流程](RELEASE.md)
+```powershell
+npm test           # 生成结果、来源和许可证校验
+npm run sync:rime   # 联网更新固定上游版本
+```
 
-## 参考项目
+词库同步也由 GitHub Actions 每周运行。运行应用无需 Node.js；Node 只用于开发时获取 SDK 和维护词库。
 
-- [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)：模型分发与推理运行时。
-- [ququ](https://github.com/yan5xu/ququ)：语音输入交互与后处理思路。
-- [vocotype-cli](https://github.com/233stone/vocotype-cli)：Windows 文字输入实现参考。
-
-ququ 和 vocotype-cli 的借鉴范围记录在 [ADR-0001](adr/0001-no-ququ-submodule.md)
-与 [ADR-0004](adr/0004-prior-art.md)。
+旧 Electron 源码与测试已从工作区移除，需要对照时查看 v0.1.x Git 标签。
+历史设计决策和研究记录保留，不作为当前构建说明。

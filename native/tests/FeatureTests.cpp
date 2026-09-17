@@ -81,6 +81,78 @@ QByteArray tarMember(const QByteArray &path, const QByteArray &bytes, char type 
 class FeatureTests : public QObject {
     Q_OBJECT
   private slots:
+    void queuedDownloadsContinueAfterCancellationAndFailure() {
+        QTemporaryDir temp;
+        LocalHttp held, good, bad;
+        held.hold = true;
+        good.body = bad.body = "model";
+        const auto entry = [](const QString &id, const QString &url, bool invalid = false) {
+            QJsonObject file{{"url", url}, {"file", "model.onnx"}};
+            if (invalid) {
+                file["sha256"] = QString(64, '0');
+                file["bytes"] = 5;
+            }
+            return QJsonObject{{"id", id},
+                               {"dir", id},
+                               {"archive", "files"},
+                               {"files", QJsonObject{{"model", "model.onnx"}}},
+                               {"downloads", QJsonArray{file}}};
+        };
+        ModelManager manager(temp.path(), nullptr,
+                             {{"offline", QJsonArray{entry("held", held.url()), entry("bad", bad.url(), true),
+                                                     entry("good", good.url()), entry("skip", good.url())}}});
+        const auto row = [&](int i) { return manager.models("offline")[i].toMap(); };
+        QSignalSpy done(&manager, &ModelManager::completed), failed(&manager, &ModelManager::failed);
+        manager.download("held");
+        manager.download("skip");
+        manager.download("bad");
+        manager.download("good");
+        manager.download("good"); // A double click must not queue the same model twice.
+        QTRY_VERIFY(!held.request.isEmpty());
+        QCOMPARE(row(2)["queuePosition"].toInt(), 3);
+        QVERIFY(good.request.isEmpty());
+        manager.cancel("skip");
+        QCOMPARE(row(3)["phase"].toString(), "cancelled");
+        QCOMPARE(row(2)["queuePosition"].toInt(), 2);
+        manager.cancel("held");
+        QTRY_COMPARE(done.size(), 1);
+        QCOMPARE(done[0][0].toString(), "good");
+        QCOMPARE(failed.size(), 1);
+        QCOMPARE(row(1)["phase"].toString(), "error");
+        QVERIFY(!row(1)["error"].toString().isEmpty());
+        QVERIFY(QFile::exists(temp.filePath("good/model.onnx")));
+        QVERIFY(!QFile::exists(temp.filePath("skip")));
+        QVERIFY(!manager.busy());
+        manager.download("held");
+        manager.download("skip");
+        manager.cancel();
+        QTest::qWait(100);
+        QVERIFY(!manager.busy());
+        QCOMPARE(done.size(), 1);
+        QVERIFY(!QFile::exists(temp.filePath("skip")));
+    }
+    void queuedDownloadsFinishInOrder() {
+        QTemporaryDir temp;
+        LocalHttp server;
+        server.body = "model";
+        QJsonArray entries;
+        for (const auto &id : {"a", "b", "c"})
+            entries.append(
+                QJsonObject{{"id", id},
+                            {"dir", id},
+                            {"archive", "files"},
+                            {"files", QJsonObject{{"model", "model.onnx"}}},
+                            {"downloads", QJsonArray{QJsonObject{{"url", server.url()}, {"file", "model.onnx"}}}}});
+        ModelManager manager(temp.path(), nullptr, {{"offline", entries}});
+        QSignalSpy done(&manager, &ModelManager::completed);
+        for (const auto &id : {"a", "b", "c"})
+            manager.download(id);
+        QTRY_COMPARE(done.size(), 3);
+        QCOMPARE(done[0][0].toString(), "a");
+        QCOMPARE(done[1][0].toString(), "b");
+        QCOMPARE(done[2][0].toString(), "c");
+        QVERIFY(!manager.busy());
+    }
     void nativeUpdateChannel() {
         const auto release = [](QString version) {
             const auto name = "Vocal-Native-Setup-" + version + ".exe";

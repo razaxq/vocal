@@ -1,14 +1,11 @@
-# 运行时资源
+# 应用资源
 
-打包时由 `electron-builder.yml` 的 `extraResources` 复制进 `process.resourcesPath`，
-开发时从项目根目录读（见 `main/windows/appIdentity.ts`）。
+- `icon.png`、`tray.png`：通过 Qt 资源系统编入程序。
+- `changelog.json`：关于页与 Release 说明共用的更新日志。
+- `dictionaries/rime-ice/`：完整雾凇派生词库、上游原文和来源许可。
 
-| 文件 | 用途 |
-|---|---|
-| `tray.png` / `tray@2x.png` | 托盘图标，32 / 64 px |
-| `icon.png` | 应用图标的 PNG 版本 |
-| `icon.ico` | 从 `build/icon.ico` 复制到打包资源，供窗口和任务栏使用；开发时直接读取 `build/icon.ico` |
+`native/scripts/package.ps1` 只打包运行时词库与许可，不打包原始 `base.dict.yaml`。
+Windows 任务栏和 EXE 图标来自 `build/icon.ico`，图标源文件是 `build/icon.svg`。
 
-模型**不在这里**，也不进仓库（500MB+）。它们下载到用户数据目录的 `models/`：
-便携版是 exe 旁边的 `data/models`，安装版是 `%APPDATA%\Vocal\models`。
-在设置的「识别」页点一下就开始下载。
+模型不进入安装包。正式运行时由 Qt 用户数据目录保存模型、设置和历史；
+开发预览使用 `data/models` 与 `data/native-preview`。

@@ -76,7 +76,7 @@ $notes = @"
 Windows x64 · C++ / Qt Quick · 模型在应用内单独下载。
 Models are downloaded separately in the app.
 "@
-$entry = Get-Content "$repo/src/shared/changelog.json" -Raw | ConvertFrom-Json | Where-Object { $_.version -eq $version } | Select-Object -First 1
+$entry = Get-Content "$repo/resources/changelog.json" -Raw | ConvertFrom-Json | Where-Object { $_.version -eq $version } | Select-Object -First 1
 if ($entry) { $notes += "`n`n## 更新日志`n`n" + (($entry.changes | ForEach-Object { "- $_" }) -join "`n") }
 $notesFile = [IO.Path]::GetTempFileName()
 try {

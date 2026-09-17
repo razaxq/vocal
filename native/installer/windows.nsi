@@ -7,6 +7,7 @@ OutFile "${OUTPUT}"
 InstallDir "$LOCALAPPDATA\Programs\VocalNative"
 InstallDirRegKey HKCU "Software\VocalNative" "InstallDir"
 BrandingText "Vocal · Ramos"
+SetFont "Microsoft YaHei UI" 9
 ShowInstDetails show
 ShowUninstDetails show
 VIProductVersion "${PRODUCT_VERSION}.0"
@@ -18,7 +19,7 @@ VIAddVersionKey "LegalCopyright" "Copyright 2026 Ramos"
 !include "MUI2.nsh"
 !define MUI_ABORTWARNING
 !define MUI_FINISHPAGE_RUN "$INSTDIR\vocal-native.exe"
-!define MUI_FINISHPAGE_RUN_TEXT "启动 Vocal Native"
+!define MUI_FINISHPAGE_RUN_TEXT "$(LaunchVocal)"
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
@@ -27,6 +28,8 @@ VIAddVersionKey "LegalCopyright" "Copyright 2026 Ramos"
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "SimpChinese"
 !insertmacro MUI_LANGUAGE "English"
+LangString LaunchVocal ${LANG_SIMPCHINESE} "启动 Vocal"
+LangString LaunchVocal ${LANG_ENGLISH} "Launch Vocal"
 Section "Vocal Native"
     SetOutPath "$INSTDIR"
     File /r /x uninstall-files.nsh "${APP_DIR}\*"

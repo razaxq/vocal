@@ -5,6 +5,8 @@
 #include "WindowActivation.h"
 #include "WindowChrome.h"
 #include "UiDiagnostics.h"
+#include "SettingsDiagnostics.h"
+#include "SettingsFocus.h"
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QDir>
@@ -64,6 +66,7 @@ int main(int argc, char *argv[]) {
          {"smoke-scroll", "Scroll position for UI verification", "pixels", "0"},
          {"smoke-native-frame", "Capture the OS-composited window including its corners"},
          {"smoke-resource-refresh", "Verify resource rows survive repeated statistics updates"},
+         {"smoke-settings", "Verify settings interactions and model pause/resume", "json"},
          {"smoke-ui-only", "Validate deployment UI without requiring downloaded models"},
          {"smoke-overlay-pipeline", "Verify overlay continuity with a public 16 kHz float PCM fixture", "pcm"},
          {"profile-ui", "Measure settings scrolling and GUI latency", "json"},
@@ -85,9 +88,10 @@ int main(int argc, char *argv[]) {
         models = QDir(dataDir).filePath("models");
     AppController controller(dataDir, models,
                              !parser.isSet("no-hooks") && !parser.isSet("smoke-test") &&
-                                 !parser.isSet("pipeline-test") && !parser.isSet("profile-ui"),
-                             !parser.isSet("smoke-test") && !parser.isSet("pipeline-test") &&
-                                 !parser.isSet("profile-ui"));
+                                 !parser.isSet("smoke-settings") && !parser.isSet("pipeline-test") &&
+                                 !parser.isSet("profile-ui"),
+                             !parser.isSet("smoke-test") && !parser.isSet("smoke-settings") &&
+                                 !parser.isSet("pipeline-test") && !parser.isSet("profile-ui"));
     if (parser.isSet("pipeline-test")) {
         bool started = false, finished = false;
         QObject::connect(&controller, &AppController::changed, &app, [&] {
@@ -111,7 +115,7 @@ int main(int argc, char *argv[]) {
         QTimer::singleShot(120000, &app, [] { QCoreApplication::exit(4); });
         return app.exec();
     }
-    if (parser.isSet("smoke-test") && parser.isSet("smoke-theme"))
+    if ((parser.isSet("smoke-test") || parser.isSet("smoke-settings")) && parser.isSet("smoke-theme"))
         controller.setSetting("theme", parser.value("smoke-theme"));
     QQmlApplicationEngine engine;
     engine.setInitialProperties({{"controller", QVariant::fromValue(&controller)}});
@@ -122,7 +126,12 @@ int main(int argc, char *argv[]) {
     if (engine.rootObjects().isEmpty())
         return 1;
     auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    new SettingsFocus(window);
     applyWindowChrome(window);
+    QObject::connect(window, &QWindow::widthChanged, window, [window] { applyWindowChrome(window); });
+    QObject::connect(window, &QWindow::heightChanged, window, [window] { applyWindowChrome(window); });
+    QObject::connect(window, &QWindow::screenChanged, window, [window] { applyWindowChrome(window); });
+    QObject::connect(window, &QWindow::windowStateChanged, window, [window] { applyWindowChrome(window); });
     QObject::connect(window, &QWindow::visibleChanged, window, [window](bool visible) {
         if (visible)
             applyWindowChrome(window);
@@ -135,17 +144,65 @@ int main(int argc, char *argv[]) {
         window->hide();
     QSystemTrayIcon tray(app.windowIcon());
     QMenu menu;
-    menu.addAction("Vocal Native", window, [window] { restoreMainWindow(window); });
+    auto *openSettings = menu.addAction(QString{}, window, [window] { restoreMainWindow(window); });
+    menu.setDefaultAction(openSettings);
+    auto *statusAction = menu.addAction(QString{});
+    statusAction->setEnabled(false);
     menu.addSeparator();
-    menu.addAction("退出 / Quit", &app, &QApplication::quit);
+    auto *enabledAction = menu.addAction(QString{});
+    enabledAction->setCheckable(true);
+    QObject::connect(enabledAction, &QAction::triggered, &controller, &AppController::setServiceEnabled);
+    const auto showPage = [window](int page) {
+        window->setProperty("page", page);
+        restoreMainWindow(window);
+    };
+    auto *modelsAction = menu.addAction(QString{}, window, [=] { showPage(1); });
+    auto *historyAction = menu.addAction(QString{}, window, [=] { showPage(7); });
+    auto *directoryAction = menu.addAction(QString{}, &controller, &AppController::openModelDirectory);
+    menu.addSeparator();
+    auto *updateAction = menu.addAction(QString{}, &controller, [&] {
+        showPage(8);
+        controller.checkUpdates();
+    });
+    auto *aboutAction = menu.addAction(QString{}, window, [=] { showPage(8); });
+    menu.addSeparator();
+    auto *quitAction = menu.addAction(QString{}, &app, &QApplication::quit);
+    const auto refreshTray = [&] {
+        const bool en = controller.settings()["language"] == "en";
+        openSettings->setText(en ? "Open settings" : "打开设置");
+        enabledAction->setText(en ? "Enable voice input" : "启用语音输入");
+        enabledAction->setChecked(controller.serviceEnabled());
+        modelsAction->setText(en ? "Recognition and models" : "识别与模型");
+        historyAction->setText(en ? "History" : "历史记录");
+        directoryAction->setText(en ? "Open model folder" : "打开模型目录");
+        updateAction->setText(en ? "Check for updates" : "检查更新");
+        updateAction->setEnabled(controller.update()["state"] != "downloading" &&
+                                 controller.update()["state"] != "checking");
+        aboutAction->setText(en ? "About Vocal" : "关于 Vocal");
+        quitAction->setText(en ? "Quit" : "退出");
+        const QMap<QString, QString> states{{"paused", en ? "Paused · models unloaded" : "已暂停，模型已释放"},
+                                            {"ready", en ? "Ready" : "准备就绪"},
+                                            {"unloaded", en ? "Models asleep" : "模型已休眠"},
+                                            {"loading", en ? "Loading models…" : "正在加载模型…"},
+                                            {"recording", en ? "Listening…" : "正在聆听…"},
+                                            {"recognizing", en ? "Finishing…" : "正在整理…"},
+                                            {"error", en ? "Check recognition settings" : "请检查识别设置"}};
+        statusAction->setText(states.value(controller.state(), controller.state()));
+    };
+    QObject::connect(&menu, &QMenu::aboutToShow, &menu, refreshTray);
+    QObject::connect(&controller, &AppController::settingsChanged, &menu, refreshTray);
+    refreshTray();
     tray.setContextMenu(&menu);
-    tray.setToolTip("Vocal Native");
-    if (QSystemTrayIcon::isSystemTrayAvailable() && !parser.isSet("smoke-test") && !parser.isSet("profile-ui")) {
+    tray.setToolTip("Vocal");
+    if (QSystemTrayIcon::isSystemTrayAvailable() && !parser.isSet("smoke-test") && !parser.isSet("smoke-settings") &&
+        !parser.isSet("profile-ui")) {
         window->setProperty("closeToTray", true);
         app.setQuitOnLastWindowClosed(false);
         tray.show();
         connectTrayActivation(&tray, window);
     }
+    if (parser.isSet("smoke-settings"))
+        verifySettings(window, &controller, parser.value("smoke-settings"));
     if (parser.isSet("profile-ui")) {
         const auto output = parser.value("profile-ui");
         const auto wheel = parser.isSet("profile-wheel");
@@ -271,7 +328,8 @@ int main(int argc, char *argv[]) {
                        &app] {
             if (*scheduled)
                 return;
-            if (controller.state() == "ready" || controller.state() == "error") {
+            if (controller.state() == "ready" || controller.state() == "error" ||
+                (uiOnly && controller.state() == "paused")) {
                 *scheduled = true;
                 auto *captureWindow = window;
                 if (scrollPosition > 0) {

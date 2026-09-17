@@ -6,7 +6,7 @@
 
 | 入口 | 执行内容 | 是否公开发布 |
 | --- | --- | --- |
-| `main` / `codex/**` 推送、Pull Request | Qt 编译、C++ 测试、QML 检查、安装包/ZIP、独立运行检查；保留 Electron 回归检查 | 否，下载 Actions artifacts |
+| `main` / `codex/**` 推送、Pull Request | Qt 编译、C++ 测试、QML 检查、安装包/ZIP、独立运行检查；词库生成工具校验 | 否，下载 Actions artifacts |
 | 手动运行 `ci` 或 `release` | 构建和上传测试产物 | 否 |
 | 推送 `vX.Y.Z` 标签 | 校验版本 → Qt 构建/测试/打包 → 校验 GitHub 附件 → 发布 Release | 是 |
 
@@ -40,7 +40,7 @@ Qt 更新器读取 GitHub Release API，只接受匹配版本的 `Vocal-Native-S
 ## 发布新版本
 
 1. 修改根目录 `package.json` 的版本（可用 `npm version patch --no-git-tag-version` 同步锁文件）。
-2. 更新 `src/shared/changelog.json`，提交并推送代码，确认 CI 通过。
+2. 更新 `resources/changelog.json`，提交并推送代码，确认 CI 通过。
 3. 对该提交创建同版本标签并推送，例如 `v1.0.0`。不要重用已发布标签。
 
 程序版本、Windows 文件属性、安装器和更新标记均从该版本派生。标签不匹配时停止构建。
@@ -72,7 +72,7 @@ choco install nsis --version=3.12 -y
 原生运行/调试和迁移验收见 [native/README.md](../native/README.md) 与
 [native/VALIDATION.md](../native/VALIDATION.md)。
 
-## 旧 Electron 构建
+## 历史版本
 
-历史源码和 `npm run dist` 仍保留，用于回归和手动维护；新的 `release` workflow 不再调用
-`npm run release`。历史 Electron 附件、更新清单不应删除。
+当前工作区只维护 Qt 原生版。旧 Electron 源码可从 v0.1.x Git 标签查看；历史 GitHub Release
+与旧更新清单保留，避免中断已安装旧版用户的下载入口。新版本只构建和发布 Qt 包。
