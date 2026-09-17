@@ -1,4 +1,5 @@
 #include "Dictionary.h"
+#include "CorrectionGuard.h"
 #include "LlmService.h"
 #include "ModelManager.h"
 #include "ModelRows.h"
@@ -9,6 +10,8 @@
 #include "TextOutput.h"
 #include "TriggerController.h"
 #include <QCryptographicHash>
+#include <QClipboard>
+#include <QGuiApplication>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -22,6 +25,11 @@ class InputFixture : public Platform {
     quintptr focus = 1;
     QString typed;
     int erased = 0;
+    QStringList selectedRanges;
+    QString selected;
+    int pasted = 0;
+    int pasteDelay = 0;
+    bool selectionSucceeds = true;
     bool succeeds = true;
     bool start(QString *) override { return true; }
     bool fullscreen() const override { return false; }
@@ -29,11 +37,37 @@ class InputFixture : public Platform {
     bool inputSupported() const override { return true; }
     bool inject(quintptr, const QString &t, QString *) override {
         if (succeeds)
+        {
+            if (!selected.isEmpty()) typed.chop(selected.size());
+            selected.clear();
             typed += t;
+        }
         return succeeds;
+    }
+    bool selectPreviousText(quintptr, const QString &expected, QString *) override {
+        selectedRanges.append(expected);
+        if (!selectionSucceeds || !typed.endsWith(expected)) return false;
+        selected = expected;
+        return true;
+    }
+    int textInputApplied(quintptr, const QString &expected) override {
+        return selected.isEmpty() && typed.endsWith(expected) ? 1 : 0;
+    }
+    bool paste(quintptr target, QString *error) override {
+        ++pasted;
+        if (pasteDelay > 0) {
+            QTimer::singleShot(pasteDelay, this, [this, target] {
+                QString ignored;
+                inject(target, QGuiApplication::clipboard()->text(), &ignored);
+            });
+            return true;
+        }
+        return inject(target, QGuiApplication::clipboard()->text(), error);
     }
     bool erase(quintptr, int n, QString *) override {
         erased += n;
+        if (!selected.isEmpty()) typed.chop(selected.size());
+        selected.clear();
         return true;
     }
 };
@@ -82,6 +116,27 @@ QByteArray tarMember(const QByteArray &path, const QByteArray &bytes, char type 
 class FeatureTests : public QObject {
     Q_OBJECT
   private slots:
+    void contextualCorrectionRejectsNonHanTokens() {
+        QVERIFY(isHanCharacterEdit(u"夭", u"天"));
+        QVERIFY(isHanCharacterEdit(u"汽", u"气"));
+        QVERIFY(!isHanCharacterEdit(u"天", u"[UNK]"));
+        QVERIFY(!isHanCharacterEdit(u"天", u"##天"));
+        QVERIFY(!isHanCharacterEdit(u"天", u"天气"));
+        QVERIFY(!isHanCharacterEdit(u"天", u"。"));
+        QVERIFY(!isHanCharacterEdit(u"A", u"天"));
+        QVERIFY(!isHanCharacterEdit(u"天", u"1"));
+        QVERIFY(!isHanCharacterEdit(u"", u"天"));
+    }
+    void correctionCannotIntroduceOrChangeNumbers() {
+        QVERIFY(!preservesNumericCharacters(u"已在", u"一在"));
+        QVERIFY(!preservesNumericCharacters(u"已再", u"一再"));
+        QVERIFY(!preservesNumericCharacters(u"一百", u"已百"));
+        QVERIFY(!preservesNumericCharacters(u"O1", u"01"));
+        QVERIFY(!preservesNumericCharacters(u"12", u"13"));
+        QVERIFY(preservesNumericCharacters(u"三幢楼", u"三栋楼"));
+        QVERIFY(preservesNumericCharacters(u"懒柜", u"懒鬼"));
+        QVERIFY(preservesNumericCharacters(u"已在", u"已在"));
+    }
     void silentUpdatePreservesInstallDirectory() {
         QProcess installer;
         configureNativeUpdate(installer, "C:/Temp/Vocal Update.exe", 1234, "C:/Users/Test User/Vocal 中文");
@@ -241,10 +296,126 @@ class FeatureTests : public QObject {
         QVERIFY(output.update("测试旧内容", config, 1500, &error));
         platform.succeeds = false;
         QVERIFY(!output.update("测试新内容", config, 1500, &error));
-        QCOMPARE(platform.erased, 3);
+        QCOMPARE(platform.erased, 0);
+        QCOMPARE(platform.typed, "测试旧内容"); // Failed insertion did not first destroy the old suffix.
+        QCOMPARE(platform.selectedRanges.size(), 1);
         platform.succeeds = true;
         QVERIFY(!output.update("测试新内容", config, 1500, &error));
-        QCOMPARE(platform.erased, 3);
+        QCOMPARE(platform.erased, 0);
+        QCOMPARE(platform.selectedRanges.size(), 1);
+    }
+    void longReplacementUsesOneSelectionAndOnePaste() {
+        InputFixture platform;
+        TextOutput output(&platform);
+        QString error;
+        QJsonObject config{{"injectionStrategy", "auto"}, {"restoreClipboard", true}};
+        QGuiApplication::clipboard()->setText("original clipboard");
+        output.begin(1);
+        QVERIFY(output.update(QString(1000, QChar(u'旧')), config, 1500, &error));
+        const int before = platform.pasted;
+        const QString replacement = QString(950, QChar(u'新'));
+        QVERIFY(output.update(replacement, config, 1500, &error));
+        QCOMPARE(platform.selectedRanges.size(), 1);
+        QCOMPARE(platform.selectedRanges.first().size(), 1000);
+        QCOMPARE(platform.erased, 0);
+        QCOMPARE(platform.pasted, before + 1);
+        QCOMPARE(platform.typed, replacement);
+        QTRY_COMPARE(QGuiApplication::clipboard()->text(), "original clipboard");
+    }
+    void replacementPreservesPrefixAndGraphemeBoundaries() {
+        InputFixture platform;
+        TextOutput output(&platform);
+        QString error;
+        QJsonObject config{{"injectionStrategy", "unicode"}};
+        output.begin(1);
+        const QString original = QString::fromUtf8("保留：é👩‍💻旧内容");
+        const QString revised = QString::fromUtf8("保留：è👩‍🔬新内容");
+        QVERIFY(output.update(original, config, 1500, &error));
+        QVERIFY(output.update(revised, config, 1500, &error));
+        QCOMPARE(platform.selectedRanges.first(), original.mid(3));
+        QCOMPARE(platform.typed, revised);
+        QVERIFY(output.update("保留：", config, 1500, &error));
+        QCOMPARE(platform.typed, "保留：");
+        QCOMPARE(platform.erased, 1); // One deletion of the selected suffix.
+    }
+    void selectionFailureCannotRetryAndClipboardUserChangesSurvive() {
+        InputFixture platform;
+        TextOutput output(&platform);
+        QString error;
+        QJsonObject config{{"injectionStrategy", "clipboard"}, {"restoreClipboard", true}};
+        QGuiApplication::clipboard()->setText("first copy");
+        output.begin(1);
+        QVERIFY(output.update("旧内容", config, 1500, &error));
+        QGuiApplication::clipboard()->setText("new user copy");
+        QVERIFY(output.update("新内容", config, 1500, &error));
+        QTRY_COMPARE(QGuiApplication::clipboard()->text(), "new user copy");
+        platform.selectionSucceeds = false;
+        QVERIFY(!output.update("再次改写", config, 1500, &error));
+        const int attempts = platform.selectedRanges.size();
+        platform.selectionSucceeds = true;
+        QVERIFY(!output.update("再次改写", config, 1500, &error));
+        QCOMPARE(platform.selectedRanges.size(), attempts);
+        QCOMPARE(platform.typed, "新内容");
+        QCOMPARE(platform.erased, 0);
+    }
+    void delayedClipboardPastesCoalesceAndReplaceOnce() {
+        InputFixture platform;
+        platform.pasteDelay = 240; // Target reads clipboard after the old 200 ms restoration timeout.
+        TextOutput output(&platform);
+        QSignalSpy idle(&output, &TextOutput::idle);
+        QString error;
+        QJsonObject config{{"injectionStrategy", "clipboard"}, {"restoreClipboard", true}};
+        QGuiApplication::clipboard()->setText("user clipboard");
+        output.begin(1);
+        QVERIFY(output.update("今天晴天", config, 1500, &error));
+        QVERIFY(output.update("今天晴天明天", config, 1500, &error));
+        QVERIFY(output.update("今天晴天，明天也晴天。", config, 1500, &error));
+        QCOMPARE(platform.pasted, 1);
+        QCOMPARE(QGuiApplication::clipboard()->text(), "今天晴天");
+        QTRY_COMPARE(output.inserted(), QString("今天晴天，明天也晴天。"));
+        QCOMPARE(platform.typed, output.inserted());
+        QCOMPARE(platform.pasted, 2); // Intermediate preview never reaches target.
+        QCOMPARE(idle.count(), 1);
+        QVERIFY(!output.busy());
+        QTRY_COMPARE(QGuiApplication::clipboard()->text(), "user clipboard");
+        QVERIFY(output.update(output.inserted(), config, 1500, &error));
+        QCOMPARE(platform.pasted, 2); // Final identical to preview: no second paste.
+        QVERIFY(output.update("今天晴天。", config, 1500, &error));
+        QTRY_COMPARE(output.inserted(), QString("今天晴天。"));
+        QCOMPARE(platform.selectedRanges.last(), QString("，明天也晴天。"));
+        QCOMPARE(platform.typed, QString("今天晴天。"));
+    }
+    void pendingPasteDoesNotLeakIntoNextSession() {
+        InputFixture platform;
+        platform.pasteDelay = 120;
+        TextOutput output(&platform);
+        QString error;
+        QJsonObject config{{"injectionStrategy", "clipboard"}, {"restoreClipboard", true}};
+        output.begin(1);
+        QVERIFY(output.update("第一句", config, 1500, &error));
+        QVERIFY(output.update("应被取消的旧预览", config, 1500, &error));
+        output.begin(0); // Cancel the unsent preview; first paste has already been submitted.
+        output.begin(1);
+        QVERIFY(output.update("第二句", config, 1500, &error));
+        QTRY_COMPARE(output.inserted(), QString("第二句"));
+        QCOMPARE(platform.typed, QString("第一句第二句"));
+        QCOMPARE(platform.pasted, 2);
+        QVERIFY(platform.selectedRanges.isEmpty());
+    }
+    void delayedOutputDoesNotContinueAfterFocusMoves() {
+        InputFixture platform;
+        platform.pasteDelay = 100;
+        TextOutput output(&platform);
+        QSignalSpy failures(&output, &TextOutput::failed);
+        QString error;
+        QJsonObject config{{"injectionStrategy", "clipboard"}};
+        output.begin(1);
+        QVERIFY(output.update("预览", config, 1500, &error));
+        QVERIFY(output.update("最终内容", config, 1500, &error));
+        platform.focus = 2;
+        QTRY_COMPARE(failures.count(), 1);
+        QCOMPARE(platform.pasted, 1);
+        QVERIFY(platform.selectedRanges.isEmpty());
     }
     void focusLossAndReplacementLimit() {
         InputFixture platform;
@@ -255,11 +426,13 @@ class FeatureTests : public QObject {
         QVERIFY(output.update("原始文字", config, 1500, &error));
         QVERIFY(!output.update("全部改写", config, 2, &error));
         QCOMPARE(platform.erased, 0);
+        QVERIFY(platform.selectedRanges.isEmpty());
         platform.focus = 2;
         QVERIFY(!output.update("最终文字", config, 1500, &error));
         platform.focus = 1;
         QVERIFY(!output.update("最终文字", config, 1500, &error));
         QCOMPARE(platform.erased, 0);
+        QVERIFY(platform.selectedRanges.isEmpty());
     }
     void keyboardModesAndMouseEscape() {
         QTemporaryDir temp;

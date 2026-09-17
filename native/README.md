@@ -20,10 +20,18 @@
 - 模型按顺序排队下载，支持单独取消、校验、解压和删除反馈。
 - 左下角和托盘的语音输入总开关同步；关闭后停止录音并退出模型进程，记住原模型选择。
 - 完整雾凇词库参与定稿候选检索/纠错，个人热词点击保存后生效，不随输入重载模型。
-- 录音按停顿/最长 30 秒切段，按顺序定稿；最终结果覆盖流式预览。
-- 悬浮条沿用旧版的紧凑/实时文字布局、五条波形和进出动画，设置窗口隐藏后也能显示。
+- 录音持续缓存，按 20 ms 音频帧检测停顿，在停顿内部切段并保留下一句开头；后台按顺序定稿、纠错。
+- 默认自动分段：依据句内停顿节奏和当前片段长度寻找短停顿，通常约 220–480 ms；很短的片段最多等待约 650 ms，减少碎片。关闭自动分段后才使用手动设置的停顿时长。
+- 结束录音后只处理剩余音频片段，基于已定稿文本做全文纠错和累计标点；不再重新识别整段录音覆盖预览。随后进行可选 AI 整理、输入和历史保存。
+- 每次新增定稿片段，用累计的未加标点文本生成完整预览；不把上次带标点的预览重新送入模型。过期结果丢弃，来源未变则复用结果。SenseVoice 自带标点，不叠加 CT-Transformer。
+- 悬浮窗可选全部内容、最新三行（默认）或不显示文字。全部内容先变宽再变高，达到屏幕可用高度后可滚动查看；无需启用流式模型。
+- 输出时机可选识别完成后输出（新配置默认）或预览输出。旧版两种输入时机迁移为预览输出，保留原有边说边输入的行为。
 - 本地口语清理、可选 AI 整理、Unicode/剪贴板输入、剪贴板恢复、历史记录均已接入。
+- 最终文字调整先选中需替换的片段，再一次替换；长文本在自动模式下使用粘贴，不再逐字退格重写。保留原有内容、焦点与替换长度保护。连续输出等待上一次输入完成后再替换，尚未发送的预览合并为最新内容。
 - 可设置空闲卸载；唤醒时先采集录音，等待模型准备好。
+- 识别页新增“麦克风预热”，默认开启：设备保持打开，未触发的音频直接丢弃，不保存、不识别；关闭预热或语音输入总开关后释放空闲设备，退出程序也释放设备。录音期间关闭预热则在本次结束后释放。
+- 麦克风打开、读取与 PCM 缓存由独立 C++ 采集线程处理，界面短暂繁忙或模型加载不会阻止采集；会话之间隔离缓存。消费积压超过 120 秒时明确报错，不覆盖未处理音频。
+- Windows 使用设备原生录音格式并请求 40 ms 缓冲；先发起采集，再恢复未就绪模型。收到首批音频前悬浮窗显示“麦克风准备中”，之后显示“正在听”。
 - 关于页包含进程内存/CPU、模型占用、更新入口和更新日志。
 - 开机自启仅允许独立部署包。开发包不自动安装更新；正式原生通道只接受
   `Vocal-Native-Setup-<version>.exe`，不会安装现有 Electron 发布文件。
@@ -31,6 +39,14 @@
 开发配置和历史保存在 `data/native-preview`，不读取或覆盖 Electron 的设置和 API Key。
 模型目录复用 `data/models`；**在原生版删除模型也会删除这里的共享模型文件**。
 录音临时文件在识别结束后清理，历史只存文字。
+
+分段仍是基于音量和停顿的音频边界检测，并非语义完整性分类，也不能保证与标点模型生成的每个逗号重合。
+没有可检测停顿时不会仅因文本应有逗号而切音频，也不会为凑满 30 秒而切断连续说话。
+单段连续音频达到 120 秒时结束本次录音并处理缓存。整段纠错按重叠文本窗口处理，失败时保留逐段结果。
+只缓存触发后的待处理音频和分段临时文件，识别结束或取消后删除；不再额外保存一份整场录音。
+最终全文纠错使用已经逐段纠错的文本，不回退到原始识别结果。数字保护同时检查原词和候选词，避免语言模型把“已”误改成“一”等数字。
+
+MacBERT 允许高置信度的非同音单字纠错，非同音候选使用更严格门槛；数字、个人热词、代码和英文标识继续受保护。普通 BERT 仍使用同音词库候选。现有纠错保持文字长度，不能增删字或调整语序。
 
 ## 构建环境
 
@@ -66,7 +82,26 @@ MacBERT/BERT 语料、流式增量、完整定稿/纠错/清理/历史流程、�
 
 ```powershell
 python native/tests/migration_protocol.py --app data/native-build/bin/vocal-native.exe --models data/models --screens data/native-ui-check/pages
+python native/tests/segmentation_pipeline.py --app data/native-build/bin/vocal-native.exe --models data/models --output data/segmentation-check
+python native/tests/preview_stability.py --app data/native-build/bin/vocal-native.exe --models data/models --output data/preview-stability.json
+python native/tests/capture_startup.py --app data/native-build/bin/vocal-native.exe --models data/models --output data/capture-startup-check/pipeline.json
 ```
+
+`segmentation_pipeline.py` 将三段公开语音与停顿连续送入实际分段路径，覆盖仅定稿、定稿加流式、
+仅流式、关闭纠错四种手动分段组合，并用 400 ms 停顿检查启用/禁用流式时的自动分段；
+同时检查累计原文标点、两种输出时机、最终全文纠错、历史合并和三种悬浮窗模式。
+`overlay_preview.py --app <程序路径> --output <截图目录>` 检查浅/深色、中文/英文和先加宽再加高的布局。
+
+`preview_stability.py` 重放预览退化样例，核对数字保护与现有同音纠错；不读取用户历史或录音。
+
+`correction_context.py --app data/native-ci-build/bin/vocal-native.exe --models data/models --output data/correction-context/results.json` 用两个真实模型检查高置信度非同音纠错、原有同音纠错和正确/受保护文本；词库开关分别测试。需要先设置 Qt/MinGW DLL 的 PATH。
+
+`capture_startup.py` 对比模型加载前、加载后送入相同公开音频的完整结果，检查开头缓存。
+它不测量真实麦克风启动耗时；`capture-probe` 另报告设备打开、首批音频到达时间及实际缓冲大小，不保存录音。
+`vocal-native-probe.exe --capture-warm` 检查预热后的实际首包耗时与界面线程心跳，不保存录音。
+`native-capture` 使用模拟设备检查慢速启动、首尾包、消费延迟、连续触发、取消隔离、空闲丢弃和设备切换。
+`capture_latency.py --probe <vocal-native-probe.exe> --app <vocal-native.exe> --models <模型目录> --output <JSON>`
+交替测量开启/关闭预热的真实首包延迟，并单独测量公开音频的模型加载与推理；麦克风音频不保存、不识别。
 
 完整证据及限制见 [VALIDATION.md](VALIDATION.md)。不能把固定样例通过等同于通用准确率，
 也不能把自动测试等同于用户在任意应用中的全局触发与文字输入已经通过。

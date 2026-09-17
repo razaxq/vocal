@@ -1,4 +1,5 @@
 #include "Platform.h"
+#include "WindowsTextSelection.h"
 #include <QCoreApplication>
 #include <QGuiApplication>
 #include <QMap>
@@ -192,6 +193,21 @@ class WindowsPlatform final : public Platform {
         }
         return QRect(at.x, at.y, qMax(1L, info.rcCaret.right - info.rcCaret.left), 1);
     }
+    bool selectPreviousText(quintptr saved, const QString &expected, QString *error) override {
+        if (!saved || target() != saved) {
+            *error = "焦点已变化，未替换文字";
+            return false;
+        }
+        for (int key : {VK_CONTROL, VK_SHIFT, VK_MENU, VK_LWIN, VK_RWIN})
+            if (GetAsyncKeyState(key) & 0x8000) {
+                *error = "请松开修饰键后重试";
+                return false;
+            }
+        QString method;
+        const bool selected = selectPreviousWindowsText(reinterpret_cast<HWND>(saved), expected, error, &method);
+        setProperty("replacementSelectionMethod", method);
+        return selected;
+    }
     bool erase(quintptr saved, int count, QString *error) override {
         if (!saved || target() != saved || count < 0 || count > 100000) {
             *error = "焦点已变化，未替换文字";
@@ -222,6 +238,9 @@ class WindowsPlatform final : public Platform {
             }
         }
         return true;
+    }
+    int textInputApplied(quintptr saved, const QString &expected) override {
+        return previousWindowsTextMatches(reinterpret_cast<HWND>(saved), expected);
     }
     bool paste(quintptr saved, QString *error) override {
         if (!saved || target() != saved) {

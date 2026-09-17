@@ -60,7 +60,7 @@ bool hasVoice(const QVector<float> &samples, int sampleRate) {
     }
     return count && double(active) / count >= .04;
 }
-AudioCapture::AudioCapture(QObject *parent) : QObject(parent) {
+AudioCapture::AudioCapture(QObject *parent) : QObject(parent), m_devices(this) {
     connect(&m_devices, &QMediaDevices::audioInputsChanged, this, &AudioCapture::devicesChanged);
 }
 QVariantList AudioCapture::devices() const {
@@ -83,18 +83,23 @@ bool AudioCapture::start(const QByteArray &deviceId, QString *error) {
         return false;
     }
     m_format = device.preferredFormat();
+#ifndef Q_OS_WIN
     QAudioFormat desired;
     desired.setSampleRate(16000);
     desired.setChannelCount(1);
     desired.setSampleFormat(QAudioFormat::Float);
     if (device.isFormatSupported(desired))
         m_format = desired;
+#endif
+    // Use the Windows device's native format. Resampling before the first
+    // packet adds startup work; the recognizer already accepts the actual rate.
     m_decoder = PcmDecoder(m_format);
     m_samples.clear();
     m_limited = false;
     m_source = std::make_unique<QAudioSource>(device, m_format);
+    m_source->setBufferSize(m_format.bytesForDuration(40000));
     connect(
-        m_source.get(), &QAudioSource::stateChanged, this,
+        m_source.get(), &QAudioSource::stateChanged, m_source.get(),
         [this](QAudio::State) {
             if (m_source && m_source->error() != QAudio::NoError && m_source->error() != QAudio::UnderrunError)
                 emit failed("Microphone capture failed. Check the input device and microphone permission.");
@@ -106,7 +111,10 @@ bool AudioCapture::start(const QByteArray &deviceId, QString *error) {
         stop();
         return false;
     }
+    m_bufferDurationMs = m_format.durationForBytes(m_source->bufferSize()) / 1000;
     connect(m_input, &QIODevice::readyRead, this, &AudioCapture::drain);
+    // A backend may already have data by the time readyRead is connected.
+    drain();
     return true;
 }
 void AudioCapture::drain() {

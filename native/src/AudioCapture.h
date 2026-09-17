@@ -23,10 +23,12 @@ class AudioCapture : public QObject {
     Q_OBJECT
   public:
     explicit AudioCapture(QObject *parent = nullptr);
-    bool start(const QByteArray &deviceId, QString *error);
-    QVector<float> stop();
+    virtual bool start(const QByteArray &deviceId, QString *error);
+    virtual QVector<float> stop();
+    virtual void flush() { drain(); }
     QVector<float> takeSamples() { return std::exchange(m_samples, {}); }
-    int sampleRate() const { return m_format.sampleRate(); }
+    virtual int sampleRate() const { return m_format.sampleRate(); }
+    qint64 bufferDurationMs() const { return m_bufferDurationMs; }
     QVariantList devices() const;
   signals:
     void frames(const QVector<float> &samples, int sampleRate);
@@ -44,4 +46,5 @@ class AudioCapture : public QObject {
     PcmDecoder m_decoder;
     QVector<float> m_samples;
     bool m_limited = false;
+    qint64 m_bufferDurationMs = 0;
 };

@@ -511,8 +511,17 @@ ApplicationWindow {
                     text: row.field.type === "number" ? String(Number(root.controller.settings[row.field.key]) / (row.field.factor || 1)) : root.controller.settings[row.field.key]
                     echoMode: row.field.secret ? TextInput.Password : TextInput.Normal
                     inputMethodHints: row.field.type === "number" ? Qt.ImhFormattedNumbersOnly : Qt.ImhNone
+                    onActiveFocusChanged: {
+                        if (!activeFocus && row.field.type === "number" && text.trim().length === 0) {
+                            text = Qt.binding(() => String(Number(root.controller.settings[row.field.key]) / (row.field.factor || 1)));
+                        }
+                    }
                     onEditingFinished: {
                         if (row.field.type === "number") {
+                            // Empty input is a draft, not zero. Restore on blur,
+                            // including when Enter was pressed while still empty.
+                            if (text.trim().length === 0)
+                                return;
                             const n = Number(text) * (row.field.factor || 1);
                             if (Number.isFinite(n))
                                 root.controller.setSetting(row.field.key, Math.round(n));
@@ -1066,7 +1075,7 @@ ApplicationWindow {
                 },
                 {
                     title: t("鼠标", "Mouse"),
-                    fields: [f("mouseEnabled", t("鼠标触发", "Mouse trigger"), "bool"), f("mouseButton", t("按键", "Button"), "select", "", o(["left", "middle", "leftMiddle"], [t("左键", "Left button"), t("中键", "Middle button"), t("左键 + 中键", "Left + middle")])), f("mouseHoldDelayMs", t("按住多久开始", "Hold delay"), "number", "", [], t("秒", "s"), 1000), f("mouseInFullscreen", t("在全屏应用中使用", "Allow in full screen"), "bool")]
+                    fields: [f("mouseEnabled", t("鼠标触发", "Mouse trigger"), "bool"), f("mouseButton", t("按键", "Button"), "select", "", o(["left", "middle", "leftMiddle"], [t("左键", "Left button"), t("中键", "Middle button"), t("左键 + 中键", "Left + middle")])), f("mouseHoldDelayMs", t("按住多久开始", "Hold delay"), "number", "", [], "ms"), f("mouseInFullscreen", t("在全屏应用中使用", "Allow in full screen"), "bool")]
                 }
             ],
             2: [
@@ -1089,13 +1098,13 @@ ApplicationWindow {
                 },
                 {
                     title: t("服务", "Service"),
-                    fields: [f("llmEnabled", t("启用服务", "Enable service"), "bool"), f("llmBaseUrl", "API URL", "text"), f("llmApiKey", "API Key", "text"), f("llmModel", t("模型", "Model"), "text"), f("llmTimeoutMs", t("超时", "Timeout"), "number", "", [], t("秒", "s"), 1000)]
+                    fields: [f("llmEnabled", t("启用服务", "Enable service"), "bool"), f("llmBaseUrl", "API URL", "text"), f("llmApiKey", "API Key", "text"), f("llmModel", t("模型", "Model"), "text"), f("llmTimeoutMs", t("超时", "Timeout"), "number", "", [], "s", 1000)]
                 }
             ],
             4: [
                 {
                     title: t("输入方式", "Input method"),
-                    fields: [f("injectionStrategy", t("文字输入", "Text input"), "select", "", o(["auto", "unicode", "clipboard"], [t("自动（推荐）", "Automatic (recommended)"), t("逐字输入", "Unicode typing"), t("剪贴板粘贴", "Clipboard paste")])), f("clipboardThreshold", t("长文本使用粘贴", "Paste longer text"), "number", "", [], t("字", "chars")), f("restoreClipboard", t("恢复剪贴板", "Restore clipboard"), "bool"), f("injectMode", t("输入时机", "Timing"), "select", t("实时输入时请勿移动光标或修改文字", "Keep the cursor and text unchanged during live typing"), o(["segment", "live"], [t("每句定稿后", "After each sentence"), t("实时输入", "Live typing")]))]
+                    fields: [f("injectionStrategy", t("文字输入", "Text input"), "select", "", o(["auto", "unicode", "clipboard"], [t("自动（推荐）", "Automatic (recommended)"), t("逐字输入", "Unicode typing"), t("剪贴板粘贴", "Clipboard paste")])), f("clipboardThreshold", t("长文本使用粘贴", "Paste longer text"), "number", "", [], t("字", "chars")), f("restoreClipboard", t("恢复剪贴板", "Restore clipboard"), "bool"), f("injectMode", t("输出时机", "Output timing"), "select", t("预览输出时请勿移动光标或修改文字", "Keep the cursor and text unchanged during preview output"), o(["final", "preview"], [t("识别完成后输出", "After recognition"), t("预览输出", "Preview output")]))]
                 },
                 {
                     title: t("始终使用粘贴的应用", "Apps that always use paste"),
@@ -1127,7 +1136,7 @@ ApplicationWindow {
                 },
                 {
                     title: t("悬浮窗", "Recording overlay"),
-                    fields: [f("followCaret", t("跟随光标", "Follow text cursor"), "bool")]
+                    fields: [f("overlayTextMode", t("预览内容", "Transcript preview"), "select", "", o(["all", "latest", "none"], [t("全部内容", "Full transcript"), t("最新三行", "Latest three lines"), t("不显示", "Hidden")])), f("followCaret", t("跟随光标", "Follow text cursor"), "bool")]
                 }
             ]
         };
@@ -1343,7 +1352,7 @@ ApplicationWindow {
                 heading: ""
                 visible: root.controller.settings.keyboardEnabled || root.controller.settings.mouseEnabled
                 FormRow {
-                    field: root.field("debounceMs", root.tr("重复触发间隔", "Repeat interval"), "number", root.tr("间隔过短时忽略重复触发", "Ignore triggers within this interval"), [], root.tr("毫秒", "ms"))
+                    field: root.field("debounceMs", root.tr("重复触发间隔", "Repeat interval"), "number", root.tr("间隔过短时忽略重复触发", "Ignore triggers within this interval"), [], "ms")
                 }
             }
             Note {
@@ -1359,6 +1368,9 @@ ApplicationWindow {
             Section {
                 first: true
                 heading: root.tr("麦克风", "Microphone")
+                FormRow {
+                    field: root.field("microphoneWarmup", root.tr("麦克风预热", "Keep microphone ready"), "bool", root.tr("未触发时不保存音频", "Idle audio is discarded"))
+                }
                 FormRow {
                     field: root.field("deviceId", root.tr("输入设备", "Input device"), "select", "", root.controller.devices.map(d => ({
                                 label: d.id ? d.name : root.tr("系统默认", "System default"),
@@ -1399,13 +1411,17 @@ ApplicationWindow {
             Section {
                 heading: root.tr("分段", "Segmentation")
                 FormRow {
-                    field: root.field("endpointSilenceMs", root.tr("停顿多久后定稿", "Finish after silence"), "number", "", [], root.tr("秒", "s"), 1000)
+                    field: root.field("automaticSegmentation", root.tr("自动分段", "Automatic segmentation"), "bool", root.tr("在自然停顿处分段", "Split at natural pauses"))
+                }
+                FormRow {
+                    visible: !root.controller.settings.automaticSegmentation
+                    field: root.field("endpointSilenceMs", root.tr("分段停顿", "Pause between segments"), "number", "", [], "s", 1000)
                 }
             }
             Section {
                 heading: root.tr("内存", "Memory")
                 FormRow {
-                    field: root.field("idleUnloadMin", root.tr("空闲释放内存", "Unload when idle"), "number", root.tr("0 表示不释放；释放后首次识别稍慢", "0 keeps models loaded; the next start takes longer after unloading"), [], root.tr("分钟", "min"))
+                    field: root.field("idleUnloadMin", root.tr("空闲释放内存", "Unload when idle"), "number", root.tr("0 表示不释放；释放后首次识别稍慢", "0 keeps models loaded; the next start takes longer after unloading"), [], "min")
                 }
                 RowLayout {
                     Action {
@@ -1420,7 +1436,7 @@ ApplicationWindow {
             }
             Section {
                 heading: root.tr("流式模型", "Streaming model")
-                hint: root.tr("边说边预览；不使用时仅显示音量", "Live preview while speaking; optional")
+                hint: root.tr("可选，提供更即时的文字预览", "Optional, for more immediate live previews")
                 Models {
                     entries: root.controller.streamingModels
                     role: "streamingModel"
@@ -1429,7 +1445,7 @@ ApplicationWindow {
             }
             Section {
                 heading: root.tr("定稿模型", "Final recognition model")
-                hint: root.tr("说完后生成最终文字", "Produces the final transcript")
+                hint: root.tr("逐段生成识别结果", "Transcribes each speech segment")
                 Models {
                     entries: root.controller.models
                     role: "modelId"
@@ -1437,8 +1453,8 @@ ApplicationWindow {
                 }
             }
             Section {
-                heading: root.tr("同音纠错", "Homophone correction")
-                hint: root.tr("在本地修正同音误识别", "Corrects sound-alike words locally")
+                heading: root.tr("文字纠错", "Text correction")
+                hint: root.tr("在本地修正识别错字", "Corrects transcription errors locally")
                 Models {
                     entries: root.controller.correctionModels
                     role: "correctionModel"
@@ -1508,7 +1524,7 @@ ApplicationWindow {
             RowLayout {
                 Layout.fillWidth: true
                 Note {
-                    text: root.tr("共 ", "") + root.controller.statistics.count + root.tr(" 次 · ", " recordings · ") + root.controller.statistics.characters + root.tr(" 字 · 节省约 ", " characters · ~") + root.controller.statistics.minutes + root.tr(" 分钟", " minutes saved")
+                    text: root.tr("共 ", "") + root.controller.statistics.count + root.tr(" 次 · ", " recordings · ") + root.controller.statistics.characters + root.tr(" 字 · 节省约 ", " characters · ~") + root.controller.statistics.minutes + root.tr(" min", " min saved")
                 }
                 Action {
                     text: root.tr("清空", "Clear")
@@ -1541,7 +1557,7 @@ ApplicationWindow {
                         RowLayout {
                             Layout.fillWidth: true
                             Note {
-                                text: new Date(historyRow.modelData.time).toLocaleString(Qt.locale()) + " · " + Math.round(Number(historyRow.modelData.duration || 0) / 1000) + root.tr(" 秒", " s")
+                                text: new Date(historyRow.modelData.time).toLocaleString(Qt.locale()) + " · " + Math.round(Number(historyRow.modelData.duration || 0) / 1000) + " s"
                             }
                             Action {
                                 text: root.tr("复制", "Copy")
@@ -1634,7 +1650,7 @@ ApplicationWindow {
                         }
                         Label {
                             font.family: root.font.family
-                            text: Math.floor(Number(root.controller.resources.uptime || 0) / 60000) + root.tr(" 分钟", " min")
+                            text: Math.floor(Number(root.controller.resources.uptime || 0) / 60000) + " min"
                             font.pixelSize: 22
                             color: root.fg
                         }
@@ -1742,13 +1758,17 @@ ApplicationWindow {
         objectName: "voiceOverlay"
         sessionActive: root.controller.sessionActive
         busy: root.controller.recording
-        compact: root.controller.settings.streamingModel === "none"
+        displayMode: root.controller.settings.overlayTextMode
         committed: root.controller.committedText
         live: root.controller.liveText
-        message: root.controller.recording ? root.tr("正在听", "Listening") : root.tr("整理中", "Finishing")
+        message: root.controller.recording ? (root.controller.captureReady ? root.tr("正在听", "Listening") : root.tr("麦克风准备中", "Starting microphone")) : root.controller.correctingContext ? root.tr("全文纠错中", "Reviewing transcript") : root.controller.sessionActive ? root.tr("整理中", "Finishing") : root.tr("已完成", "Done")
         en: root.en
         level: root.controller.level
         dark: root.dark
         position: root.controller.overlayPosition
+        availableArea: root.controller.overlayArea
+        function syncSize() { root.controller.setOverlaySize(width, height); }
+        onWidthChanged: Qt.callLater(syncSize)
+        onHeightChanged: Qt.callLater(syncSize)
     }
 }

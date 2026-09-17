@@ -26,6 +26,12 @@ class Platform : public QObject {
     virtual QRect caretRect() const { return {}; }
     virtual bool beginTextInput(quintptr, bool, QString *) { return true; }
     virtual void endTextInput() {}
+    virtual bool selectPreviousText(quintptr, const QString &, QString *error) {
+        *error = "不支持选择待替换文字";
+        return false;
+    }
+    // Read-only completion check. An unsupported provider still needs a settling interval.
+    virtual int textInputApplied(quintptr, const QString &) { return -1; }
     virtual bool erase(quintptr, int, QString *error) {
         *error = "不支持替换文字";
         return false;

@@ -37,10 +37,10 @@ with tempfile.TemporaryDirectory(prefix='vocal-pipeline-') as temp:
  assert events and events[-1]['type']=='pipeline-result' and '九点' in events[-1]['text'] and events[-1]['history']==1,(events,stderr)
  print('PASS C++ pipeline: offline recognition, punctuation, correction, cleanup, history',flush=True)
  # Two sessions must show fresh frames and retain the overlay at hotkey release.
- for layout in ['compact','full']:
+ for layout in ['none','latest','all']:
   with tempfile.TemporaryDirectory(prefix='vocal-transition-') as ui_temp:
-   (pathlib.Path(ui_temp)/'settings.json').write_text(json.dumps(dict(dictionaryAutoUpdate=False,correctionModel='none')),encoding='utf8')
-   _,stderr=run(['--model-dir',str(models),'--data-dir',ui_temp,'--smoke-overlay',layout,'--smoke-overlay-pipeline',str(pcm),'--smoke-test',str(directory/f'overlay-{layout}.png')])
+   (pathlib.Path(ui_temp)/'settings.json').write_text(json.dumps(dict(dictionaryAutoUpdate=False,correctionModel='none',overlayTextMode=layout)),encoding='utf8')
+   _,stderr=run(['--model-dir',str(models),'--data-dir',ui_temp,'--smoke-overlay','auto','--smoke-overlay-pipeline',str(pcm),'--smoke-test',str(directory/f'overlay-{layout}.png')])
    assert 'Overlay recording-to-finishing continuity: true' in stderr,stderr
   print(f'PASS overlay {layout}: two fresh entrances and recording-to-finishing continuity',flush=True)
  # Two queued utterances must be committed in order to one history entry.

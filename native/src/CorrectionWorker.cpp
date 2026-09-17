@@ -1,4 +1,5 @@
 #include "CorrectionWorker.h"
+#include "CorrectionGuard.h"
 #include "Dictionary.h"
 #include "ModelCatalog.h"
 #if defined(__MINGW32__) && !defined(_Frees_ptr_opt_)
@@ -34,6 +35,7 @@ struct Edit {
     int start;
     QString source, target;
     double margin;
+    bool contextual = false;
 };
 struct WordSpan {
     int at;
@@ -217,7 +219,7 @@ class Corrector {
             api->ReleaseEnv(env);
     }
     QString correct(const QString &text, const QStringList &protectedWords, const Dictionary &dictionary,
-                    bool useDictionary) {
+                    bool useDictionary, bool fullContext = false) {
         QSet<int> protectedAt;
         auto mark = [&](int at, int length) {
             for (int i = at; i < at + length; ++i)
@@ -239,7 +241,11 @@ class Corrector {
         QList<Edit> edits;
         QElapsedTimer budget;
         budget.start();
-        for (int offset = 0; offset < text.size() && budget.elapsed() < 2000; offset += 96) {
+        for (int offset = 0; offset < text.size() && (fullContext || budget.elapsed() < 2000); offset += 96) {
+            // The final pass covers every context window, rather than spending
+            // the entire latency budget on the beginning of a long transcript.
+            if (fullContext)
+                budget.restart();
             const int start = qMax(0, offset - 16);
             const auto chunk = text.mid(start, offset + 112 - start);
             const auto tokens = tokenize(chunk);
@@ -261,14 +267,20 @@ class Corrector {
                     const float *row = logits.constData() + i * vocab.size();
                     int best = int(std::max_element(row, row + vocab.size()) - row);
                     const auto target = vocab[best];
-                    if (target == source || !dictionary.similarSound(source, target))
+                    // CSC is trained to correct spelling using context, including
+                    // non-homophones. Only permit single Han tokens: special tokens,
+                    // WordPieces, punctuation and Latin text are not replacements.
+                    if (target == source || !isHanCharacterEdit(source, target))
                         continue;
+                    const bool homophone = dictionary.similarSound(source, target);
                     const double margin = row[best] - row[token.id];
                     double sum = 0;
                     for (int j = 0; j < vocab.size(); ++j)
                         sum += std::exp(row[j] - row[best]);
-                    if (1 / sum >= .98 && margin >= 4)
-                        edits.append({start + token.start, source, target, margin});
+                    // Require stronger evidence without a phonetic match. These
+                    // thresholds are model scores, not calibrated accuracy rates.
+                    if (1 / sum >= (homophone ? .98 : .995) && margin >= (homophone ? 4 : 6))
+                        edits.append({start + token.start, source, target, margin, true});
                 }
             }
             if (!useDictionary)
@@ -340,7 +352,8 @@ class Corrector {
             bool occupied = false;
             for (int i = edit.start; i < edit.start + edit.source.size(); ++i)
                 occupied |= protectedAt.contains(i);
-            if (occupied || !dictionary.similarSound(edit.source, edit.target))
+            if (occupied || !preservesNumericCharacters(edit.source, edit.target) ||
+                (!edit.contextual && !dictionary.similarSound(edit.source, edit.target)))
                 continue;
             accepted.append(edit);
             mark(edit.start, edit.source.size());
@@ -388,7 +401,8 @@ int runCorrectionWorker(const QStringList &args) {
             QElapsedTimer timer;
             timer.start();
             const auto text = corrector.correct(request["text"].toString(), words, dictionary,
-                                                request["dictionaryEnabled"].toBool(true));
+                                                request["dictionaryEnabled"].toBool(true),
+                                                request["fullContext"].toBool(false));
             send({{"type", "result"}, {"id", request["id"]}, {"text", text}, {"elapsedMs", timer.elapsed()}});
         }
         return 0;

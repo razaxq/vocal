@@ -27,6 +27,8 @@ Settings::Settings(QString directory) : m_directory(std::move(directory)) {
         {"streamingModel", "none"},
         {"correctionModel", "macbert4csc"},
         {"endpointSilenceMs", 1500},
+        {"automaticSegmentation", true},
+        {"microphoneWarmup", true},
         {"idleUnloadMin", 10},
         {"cleanupLevel", "standard"},
         {"protectHotwords", true},
@@ -38,9 +40,10 @@ Settings::Settings(QString directory) : m_directory(std::move(directory)) {
         {"clipboardThreshold", 80},
         {"restoreClipboard", true},
         {"clipboardOnlyApps", QJsonArray{"WINWORD.EXE", "EXCEL.EXE"}},
-        {"injectMode", "segment"},
+        {"injectMode", "final"},
         {"theme", "system"},
         {"followCaret", true},
+        {"overlayTextMode", "latest"},
         {"launchAtLogin", false},
         {"autoUpdate", true},
         {"consolidationMode", "onFinish"},
@@ -74,6 +77,15 @@ Settings::Settings(QString directory) : m_directory(std::move(directory)) {
         if (stored.value(it.key()).type() == it.value().type())
             it.value() = stored.value(it.key());
     }
+    // Preserve existing preview behavior when migrating the two legacy timings.
+    if (stored["injectMode"] == "segment" || stored["injectMode"] == "live")
+        m_values["injectMode"] = "preview";
+    if (!QStringList{"final", "preview"}.contains(m_values["injectMode"].toString()))
+        m_values["injectMode"] = "final";
+    if (!stored.contains("overlayTextMode") && stored["overlayShowText"] == false)
+        m_values["overlayTextMode"] = "none";
+    if (!QStringList{"all", "latest", "none"}.contains(m_values["overlayTextMode"].toString()))
+        m_values["overlayTextMode"] = "latest";
     m_values["mouseHoldDelayMs"] = qBound(100, m_values["mouseHoldDelayMs"].toInt(1000), 10000);
     if (!QStringList{"left", "middle", "leftMiddle"}.contains(m_values["mouseButton"].toString()))
         m_values["mouseButton"] = "middle";
@@ -101,7 +113,8 @@ bool Settings::set(const QString &key, const QJsonValue &value, QString *error) 
     const QMap<QString, QStringList> choices{{"keyboardMode", {"hold", "toggle", "doubleTap"}},
                                              {"cleanupLevel", {"off", "light", "standard"}},
                                              {"injectionStrategy", {"auto", "unicode", "clipboard"}},
-                                             {"injectMode", {"segment", "live"}},
+                                             {"injectMode", {"final", "preview"}},
+                                             {"overlayTextMode", {"all", "latest", "none"}},
                                              {"theme", {"system", "light", "dark"}},
                                              {"consolidationMode", {"off", "onFinish", "rolling"}},
                                              {"correctionModel", {"none", "macbert4csc", "bert-chinese-int8"}}};

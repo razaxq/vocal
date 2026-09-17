@@ -1,6 +1,9 @@
 #include "AudioCapture.h"
+#include "AsyncAudioCapture.h"
 #include "Platform.h"
+#include "ReplacementProbe.h"
 #include <QApplication>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFontDatabase>
 #include <QFontInfo>
@@ -20,6 +23,12 @@ static void report(const QJsonObject &data) {
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
     const auto args = app.arguments();
+    if (args.contains("--replacement-fixture"))
+        return ReplacementProbe::fixture(app, args.value(args.indexOf("--replacement-fixture") + 1) == "native",
+                                          args.contains("--replacement-moved"));
+    if (args.contains("--replace"))
+        return ReplacementProbe::run(app, args.value(args.indexOf("--replace") + 1, "native"),
+                                      args.contains("--replacement-moved"));
     if (args.contains("--hooks")) {
         for (int i = 0; i < 3; ++i) {
             auto platform = createPlatform();
@@ -69,13 +78,75 @@ int main(int argc, char **argv) {
         QTimer::singleShot(10000, &app, &QApplication::quit);
         return app.exec();
     }
+    if (args.contains("--capture-warm") || args.contains("--capture-cold")) {
+        const bool warm = args.contains("--capture-warm");
+        const bool shortProbe = args.contains("--capture-short");
+        const int delayIndex = args.indexOf("--trigger-delay");
+        const int triggerDelay = delayIndex >= 0 && delayIndex + 1 < args.size()
+                                     ? qBound(0, args[delayIndex + 1].toInt(), 5000) : 2000;
+        const auto device = QMediaDevices::defaultAudioInput();
+        AsyncAudioCapture audio;
+        QElapsedTimer sinceTrigger;
+        double firstFrameMs = -1, first150msAudioAtMs = -1;
+        qint64 samples = 0;
+        int heartbeats = 0;
+        QTimer heartbeat;
+        heartbeat.setInterval(10);
+        QObject::connect(&heartbeat, &QTimer::timeout, &app, [&] { ++heartbeats; });
+        heartbeat.start();
+        QObject::connect(&audio, &AsyncAudioCapture::frames, &app, [&](const QVector<float> &pcm, int rate) {
+            if (pcm.isEmpty()) return;
+            samples += pcm.size();
+            if (first150msAudioAtMs < 0 && samples >= rate * .15)
+                first150msAudioAtMs = sinceTrigger.nsecsElapsed() / 1.e6;
+            if (firstFrameMs >= 0) return;
+            firstFrameMs = sinceTrigger.nsecsElapsed() / 1.e6;
+            QTimer::singleShot(shortProbe ? 300 : 3000, &audio, &AsyncAudioCapture::stop);
+        });
+        QObject::connect(&audio, &AsyncAudioCapture::failed, &app, [&](const QString &error) {
+            report({{"error", error}, {"guiHeartbeats", heartbeats}});
+            audio.setWarmup(false, {});
+            app.exit(2);
+        });
+        QObject::connect(&audio, &AsyncAudioCapture::stopped, &app, [&] {
+            report({{"sampleRate", audio.sampleRate()}, {"samples", samples},
+                    {"firstFrameMs", firstFrameMs}, {"first150msAudioAtMs", first150msAudioAtMs},
+                    {"warmup", warm}, {"device", device.description()},
+                    {"deviceId", QString::fromLatin1(device.id().toBase64())},
+                    {"triggerDelayMs", triggerDelay}, {"guiHeartbeats", heartbeats}});
+            audio.setWarmup(false, {});
+            app.exit(samples > audio.sampleRate() * (shortProbe ? .15 : 1.) ? 0 : 3);
+        });
+        report({{"stage", warm ? "warming-device" : "waiting-with-device-closed"}});
+        audio.setWarmup(warm, {});
+        QTimer::singleShot(triggerDelay, &app, [&] {
+            report({{"stage", "trigger"}, {"guiHeartbeats", heartbeats}});
+            sinceTrigger.start();
+            audio.start({});
+        });
+        QTimer::singleShot(12000, &app, [&] {
+            report({{"error", "probe deadline"}, {"guiHeartbeats", heartbeats}});
+            app.exit(4);
+        });
+        return app.exec(); // No PCM is saved or passed to a recognizer.
+    }
     if (args.contains("--capture")) {
+        report({{"stage", "constructing-capture"}});
         AudioCapture audio;
+        report({{"stage", "opening-device"}});
+        QElapsedTimer startup;
+        startup.start();
+        qint64 firstFrameMs = -1;
+        QObject::connect(&audio, &AudioCapture::frames, &app, [&](const QVector<float> &samples, int) {
+            if (!samples.isEmpty() && firstFrameMs < 0)
+                firstFrameMs = startup.elapsed();
+        });
         QString error;
         if (!audio.start({}, &error)) {
-            report({{"error", error}});
+            report({{"error", error}, {"openMs", startup.elapsed()}});
             return 1;
         }
+        const qint64 openMs = startup.elapsed();
         double peak = 0;
         QObject::connect(&audio, &AudioCapture::levelChanged, &app, [&](double value) { peak = qMax(peak, value); });
         QObject::connect(&audio, &AudioCapture::failed, &app, [&](const QString &message) {
@@ -84,7 +155,8 @@ int main(int argc, char **argv) {
         });
         QTimer::singleShot(3000, &app, [&] {
             const auto samples = audio.stop();
-            report({{"sampleRate", audio.sampleRate()}, {"samples", samples.size()}, {"peakMeter", peak}});
+            report({{"sampleRate", audio.sampleRate()}, {"samples", samples.size()}, {"peakMeter", peak},
+                    {"openMs", openMs}, {"firstFrameMs", firstFrameMs}, {"bufferMs", audio.bufferDurationMs()}});
             // Audio is held in memory only and discarded on exit.
             app.exit(samples.size() > audio.sampleRate() ? 0 : 3);
         });

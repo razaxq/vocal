@@ -1,8 +1,10 @@
 #include "AudioCapture.h"
+#include "AudioSegmenter.h"
 #include "ModelCatalog.h"
 #include "Platform.h"
 #include "Settings.h"
 #include "TriggerController.h"
+#include "TextCleanup.h"
 #include <QFile>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -22,6 +24,28 @@ class FakePlatform : public Platform {
 class CoreTests : public QObject {
     Q_OBJECT
   private slots:
+    void migratesOverlayAndOutputTiming() {
+        for (const auto &timing : {"segment", "live"}) {
+            QTemporaryDir dir;
+            QFile file(dir.filePath("settings.json"));
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            file.write(QJsonDocument(QJsonObject{{"injectMode", timing}, {"overlayShowText", false}}).toJson());
+            file.close();
+            Settings migrated(dir.path());
+            QCOMPARE(migrated.values()["injectMode"].toString(), "preview");
+            QCOMPARE(migrated.values()["overlayTextMode"].toString(), "none");
+            QVERIFY(migrated.set("overlayTextMode", "all"));
+            Settings restored(dir.path());
+            QCOMPARE(restored.values()["overlayTextMode"].toString(), "all");
+        }
+    }
+    void joinUnpunctuatedFragments() {
+        QCOMPARE(joinSpeechFragments("Hello", "world"), "Hello world");
+        QCOMPARE(joinSpeechFragments("Hello ", "world"), "Hello world");
+        QCOMPARE(joinSpeechFragments("因为现在已经", "五点了"), "因为现在已经五点了");
+        QCOMPARE(joinSpeechFragments("123", "456"), "123456");
+        QCOMPARE(joinSpeechFragments("", "hello"), "hello");
+    }
     void pcmChunkBoundaries() {
         QAudioFormat format;
         format.setSampleRate(48000);
@@ -57,18 +81,144 @@ class CoreTests : public QObject {
             QVERIFY(hasVoice(shortSpeech, rate));
         }
     }
+    void gapSplitsPreserveEverySample() {
+        for (int rate : {16000, 44100, 48000}) {
+            QVector<float> audio(rate, .025f);
+            audio.append(QVector<float>(rate * 3 / 2, 0));
+            audio.append(QVector<float>(rate, -.035f));
+            audio.append(QVector<float>(rate * 3 / 2, 0));
+            audio.append(QVector<float>(rate / 2 + 13, .045f));
+            for (qsizetype packet : {qsizetype(137), qsizetype(rate / 10), audio.size()}) {
+                AudioSegmenter segmenter;
+                QList<QVector<float>> segments;
+                for (qsizetype at = 0; at < audio.size(); at += packet)
+                    segments.append(segmenter.append(audio.mid(at, packet), rate, 1500));
+                segments.append(segmenter.finish());
+                QCOMPARE(segments.size(), 3);
+                // Cuts lie inside silence, with padding on both sides. A packet
+                // containing the next word must never donate that word to the
+                // previous inference job, regardless of packet/frame alignment.
+                qsizetype boundary = 0;
+                QVector<float> joined;
+                for (int i = 0; i < segments.size(); ++i) {
+                    joined.append(segments[i]);
+                    boundary += segments[i].size();
+                    if (i < 2) {
+                        const qsizetype speechEnd = i == 0 ? rate : rate * 7 / 2;
+                        QVERIFY(boundary >= speechEnd + rate / 5);
+                        QVERIFY(boundary <= speechEnd + rate * 13 / 10);
+                        QCOMPARE(audio[boundary], 0.f);
+                    }
+                }
+                QCOMPARE(joined, audio); // No dropped/duplicated onset or tail.
+            }
+        }
+    }
+    void shortPauseAndContinuousSpeechStayBuffered() {
+        AudioSegmenter segmenter;
+        QVector<float> audio(16000, .02f);
+        audio.append(QVector<float>(16000 * 1460 / 1000, 0));
+        audio.append(QVector<float>(16000, .03f));
+        QVERIFY(segmenter.append(audio, 16000, 1500).isEmpty());
+        QCOMPARE(segmenter.finish(), audio);
+        // The old 30 s timeout cut through an ongoing word.
+        const QVector<float> continuous(16000 * 31, .02f);
+        QVERIFY(segmenter.append(continuous, 16000, 1500).isEmpty());
+        QCOMPARE(segmenter.finish(), continuous);
+    }
+    void silentCacheAndRecordingLimitAreBounded() {
+        AudioSegmenter segmenter;
+        for (int i = 0; i < 180; ++i) {
+            for (const auto &part : segmenter.append(QVector<float>(16000, 0), 16000, 1500))
+                QVERIFY(!hasVoice(part, 16000));
+            QVERIFY(segmenter.pending().size() < 16000 * 2);
+        }
+        segmenter.reset();
+        for (int i = 0; i < 120; ++i)
+            QVERIFY(segmenter.append(QVector<float>(16000, .02f), 16000, 1500).isEmpty());
+        QVERIFY(segmenter.atLimit());
+        QCOMPARE(segmenter.finish().size(), 16000 * 120);
+        QVERIFY(!segmenter.atLimit());
+        QVERIFY(segmenter.pending().isEmpty());
+    }
     void settingsPersistence() {
         QTemporaryDir dir;
         Settings settings(dir.path());
         QCOMPARE(settings.values()["modelId"].toString(), "paraformer-yue-offline");
+        QVERIFY(settings.values()["automaticSegmentation"].toBool());
+        QVERIFY(settings.values()["microphoneWarmup"].toBool());
+        QVERIFY(settings.set("microphoneWarmup", false));
+        QVERIFY(settings.set("automaticSegmentation", false));
+        QCOMPARE(settings.values()["overlayTextMode"].toString(), "latest");
+        QCOMPARE(settings.values()["injectMode"].toString(), "final");
+        QVERIFY(settings.set("overlayTextMode", "none"));
+        QVERIFY(settings.set("injectMode", "preview"));
+        QVERIFY(!settings.set("overlayTextMode", "invalid"));
+        QVERIFY(!settings.set("injectMode", "live"));
         QVERIFY(!settings.values()["keyboardInFullscreen"].toBool());
         QVERIFY(settings.set("mouseEnabled", true));
         QVERIFY(settings.set("language", "en"));
         QVERIFY(!settings.set("mouseHoldDelayMs", 0));
         QVERIFY(!settings.set("mouseEnabled", "true"));
         Settings restored(dir.path());
+        QVERIFY(!restored.values()["automaticSegmentation"].toBool());
+        QVERIFY(!restored.values()["microphoneWarmup"].toBool());
+        QCOMPARE(restored.values()["overlayTextMode"].toString(), "none");
+        QCOMPARE(restored.values()["injectMode"].toString(), "preview");
         QVERIFY(restored.values()["mouseEnabled"].toBool());
         QCOMPARE(restored.values()["language"].toString(), "en");
+    }
+    void automaticPhrasePausesPreserveOnsets() {
+        for (int rate : {16000, 44100, 48000}) {
+            QVector<float> audio(rate * 2, .025f);
+            audio.append(QVector<float>(rate * 320 / 1000, 0));
+            audio.append(QVector<float>(rate / 20, .003f)); // Soft onset of the next word.
+            audio.append(QVector<float>(rate, -.035f));
+            for (qsizetype packet : {qsizetype(137), qsizetype(rate / 10), audio.size()}) {
+                AudioSegmenter segmenter;
+                QList<QVector<float>> pieces;
+                for (qsizetype at = 0; at < audio.size(); at += packet)
+                    pieces.append(segmenter.append(audio.mid(at, packet), rate, 5000, true));
+                pieces.append(segmenter.finish());
+                QCOMPARE(pieces.size(), 2); // Does not wait for the manual 5 s value.
+                QVERIFY(pieces.first().size() > rate * 2);
+                QVERIFY(pieces.first().size() < rate * 2320 / 1000);
+                QCOMPARE(pieces.first() + pieces.last(), audio);
+            }
+        }
+    }
+    void automaticSegmentationFollowsWordGapRhythm() {
+        AudioSegmenter fast, slow;
+        QVERIFY(fast.append(QVector<float>(32000, .025f), 16000, 1500, true).isEmpty());
+        QCOMPARE(fast.append(QVector<float>(5120, 0), 16000, 1500, true).size(), 1);
+        // Longer within-phrase word gaps raise the boundary threshold. The
+        // same 320 ms pause should not split this slower speaking rhythm.
+        for (int i = 0; i < 4; ++i) {
+            QVERIFY(slow.append(QVector<float>(6400, .025f), 16000, 1500, true).isEmpty());
+            if (i < 3)
+                QVERIFY(slow.append(QVector<float>(3520, 0), 16000, 1500, true).isEmpty());
+        }
+        QVERIFY(slow.append(QVector<float>(5120, 0), 16000, 1500, true).isEmpty());
+        QCOMPARE(slow.append(QVector<float>(3200, 0), 16000, 1500, true).size(), 1);
+    }
+    void automaticSegmentationRejectsBriefDipsAndTinyFragments() {
+        AudioSegmenter segmenter;
+        QVector<float> audio(32000, .025f);
+        audio.append(QVector<float>(3200, 0)); // 200 ms, then speech resumes.
+        audio.append(QVector<float>(16000, .025f));
+        QVERIFY(segmenter.append(audio, 16000, 1500, true).isEmpty());
+        QCOMPARE(segmenter.finish(), audio);
+        QVERIFY(segmenter.append(QVector<float>(3200, .025f), 16000, 1500, true).isEmpty());
+        QVERIFY(segmenter.append(QVector<float>(9600, 0), 16000, 1500, true).isEmpty());
+        QCOMPARE(segmenter.append(QVector<float>(1600, 0), 16000, 1500, true).size(), 1);
+    }
+    void automaticSegmentationKeepsStartupTransientWithSpeech() {
+        AudioSegmenter segmenter;
+        QVector<float> audio(640, .025f); // 40 ms device-start transient.
+        audio.append(QVector<float>(10560, 0)); // 660 ms before real speech.
+        audio.append(QVector<float>(32000, .025f));
+        QVERIFY(segmenter.append(audio, 16000, 1500, true).isEmpty());
+        QCOMPARE(segmenter.finish(), audio);
     }
     void corruptSettingsPreserved() {
         QTemporaryDir dir;

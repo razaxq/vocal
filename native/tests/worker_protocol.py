@@ -56,6 +56,25 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(events[-1]['type'], 'error')
 
+    def test_punctuation_can_be_deferred_until_after_joining(self):
+        commands = [dict(type='decode', id=1, sampleRate=16000, path='', streamText='因为现在已经', addPunctuation=False),
+                    dict(type='decode', id=2, sampleRate=16000, path='', streamText='五点十九分十五秒了', addPunctuation=False)]
+        # The stream-only helper still validates the PCM path even though it
+        # uses recognized text. No audio is needed for this protocol check.
+        with tempfile.TemporaryDirectory(prefix='vocal-punct-test-') as directory:
+            path = Path(directory) / 'empty.f32'
+            path.write_bytes(b'')
+            for command in commands:
+                command['path'] = str(path)
+            commands += [dict(type='punctuate', id=3, text='因为现在已经五点十九分十五秒了'), dict(type='quit')]
+            code, events = self.invoke(commands, model='none')
+        self.assertEqual(code, 0, events)
+        results = [event for event in events if event['type'] == 'result']
+        self.assertEqual([r['punctuationCalls'] for r in results], [0, 0, 1])
+        self.assertEqual(results[0]['text'], '因为现在已经')
+        self.assertEqual(results[1]['text'], '五点十九分十五秒了')
+        self.assertNotIn('已经。', results[2]['text'])
+
     def test_invalid_audio_request_fails_explicitly(self):
         code, events = self.invoke([dict(type='decode', sampleRate=0, path='not-a-file')])
         self.assertEqual(code, 1)

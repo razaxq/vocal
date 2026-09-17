@@ -3,6 +3,15 @@
 #include <QRegularExpression>
 #include <algorithm>
 
+QString joinSpeechFragments(const QString &left, const QString &right) {
+    if (!left.isEmpty() && !right.isEmpty()) {
+        const auto a = left.back(), b = right.front();
+        if (a.unicode() < 128 && b.unicode() < 128 && a.isLetterOrNumber() && b.isLetterOrNumber() &&
+            (a.isLetter() || b.isLetter()))
+            return left + ' ' + right;
+    }
+    return left + right;
+}
 QString cleanupSpeech(const QString &input, const QJsonObject &settings) {
     const auto level = settings["cleanupLevel"].toString("standard");
     if (level == "off" || input.trimmed().isEmpty())

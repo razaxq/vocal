@@ -9,7 +9,14 @@ Window {
     required property string message
     required property real level
     property bool busy: false
-    property bool compact: true
+    property string displayMode: "latest"
+    property bool compact: displayMode === "none"
+    property rect availableArea: Qt.rect(0, 0, Screen.width, Screen.height)
+    readonly property int textLineHeight: 22
+    readonly property int maximumWidth: Math.max(208, Math.min(720, availableArea.width - 24))
+    readonly property int textHeight: compact || !hasText ? 0 : Math.min(
+        displayMode === "all" ? Math.max(66, availableArea.height - 96) : textLineHeight * 3,
+        body.implicitHeight)
     property string committed: ""
     property string live: ""
     property bool en: false
@@ -17,6 +24,8 @@ Window {
     property bool dark: false
     property var levels: [0, 0, 0, 0, 0]
     property bool waitingForFirstFrame: false
+    property int resultHoldMs: 900
+    readonly property bool overflow: !compact && displayMode === "all" && body.implicitHeight > textHeight
     readonly property bool hasText: committed.length + live.length > 0
     readonly property color foreground: dark ? "#e9eaec" : "#303133"
     readonly property color muted: dark ? "#a4a6ab" : "#606266"
@@ -24,11 +33,13 @@ Window {
     visible: false
     opacity: 0
     transientParent: null
-    width: compact ? 208 : 420
-    height: compact ? 64 : 92
+    width: compact ? 208 : displayMode === "all"
+        ? Math.min(maximumWidth, Math.max(320, Math.ceil(textMetrics.advanceWidth) + 96))
+        : Math.min(420, maximumWidth)
+    height: compact || !hasText ? 64 : Math.max(76, textHeight + 50)
     x: position.x
     y: position.y
-    flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.WindowDoesNotAcceptFocus | Qt.WindowTransparentForInput
+    flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.WindowDoesNotAcceptFocus | (displayMode === "all" ? 0 : Qt.WindowTransparentForInput)
     color: "transparent"
     onLevelChanged: levels = levels.slice(1).concat([Math.min(1, level)])
     onSessionActiveChanged: {
@@ -69,6 +80,7 @@ Window {
     }
     SequentialAnimation {
         id: departure
+        PauseAnimation { duration: !overlay.compact && overlay.hasText ? overlay.resultHoldMs : 0 }
         ParallelAnimation {
             NumberAnimation { target: shell; property: "opacity"; to: 0; duration: 140; easing.type: Easing.InCubic }
             NumberAnimation { target: movement; property: "y"; to: 6; duration: 140; easing.type: Easing.InCubic }
@@ -79,6 +91,12 @@ Window {
                 overlay.visible = false;
             }
         }
+    }
+    TextMetrics {
+        id: textMetrics
+        font.family: "Microsoft YaHei UI"
+        font.pixelSize: 15
+        text: (overlay.committed + overlay.live).replace(/\n/g, " ")
     }
     Rectangle {
         id: shell
@@ -131,18 +149,25 @@ Window {
                 Flickable {
                     id: transcript
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Math.min(52, body.implicitHeight)
+                    Layout.preferredHeight: overlay.textHeight
                     visible: !overlay.compact && overlay.hasText
                     contentHeight: body.implicitHeight
                     clip: true
-                    interactive: false
-                    onContentHeightChanged: contentY = Math.max(0, contentHeight - height)
+                    interactive: overlay.overflow
+                    boundsBehavior: Flickable.StopAtBounds
+                    ScrollBar.vertical: ScrollBar {
+                        policy: overlay.overflow ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+                    }
+                    function followLatest() { contentY = Math.max(0, contentHeight - height); }
+                    onContentHeightChanged: Qt.callLater(followLatest)
+                    onHeightChanged: Qt.callLater(followLatest)
                     Text {
                         id: body
                         width: transcript.width
                         font.family: "Microsoft YaHei UI"
                         font.pixelSize: 15
-                        lineHeight: 1.375
+                        lineHeight: overlay.textLineHeight
+                        lineHeightMode: Text.FixedHeight
                         wrapMode: Text.Wrap
                         textFormat: Text.RichText
                         function escaped(value: string): string {

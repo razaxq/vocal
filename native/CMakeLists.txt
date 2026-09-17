@@ -23,6 +23,8 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 qt_add_library(vocal_core STATIC
     src/AudioCapture.cpp src/AudioCapture.h
+    src/AsyncAudioCapture.cpp src/AsyncAudioCapture.h
+    src/AudioSegmenter.cpp src/AudioSegmenter.h
     src/Settings.cpp src/Settings.h
     src/TextCleanup.cpp src/TextCleanup.h
     src/ModelManager.cpp src/ModelManager.h
@@ -38,8 +40,8 @@ target_link_libraries(vocal_core PUBLIC Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::
 qt_add_resources(vocal_core catalog PREFIX "/vocal" BASE "${CMAKE_CURRENT_SOURCE_DIR}/.."
     FILES ../scripts/models.json)
 if(WIN32)
-    target_sources(vocal_core PRIVATE src/platform/WindowsPlatform.cpp)
-    target_link_libraries(vocal_core PUBLIC user32)
+    target_sources(vocal_core PRIVATE src/platform/WindowsPlatform.cpp src/platform/WindowsTextSelection.cpp)
+    target_link_libraries(vocal_core PUBLIC user32 ole32 oleaut32 uuid)
     target_compile_definitions(vocal_core PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
 else()
     target_sources(vocal_core PRIVATE src/platform/UnsupportedPlatform.cpp)
@@ -78,6 +80,9 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
+    qt_add_executable(vocal-capture-tests tests/CaptureTests.cpp)
+    target_link_libraries(vocal-capture-tests PRIVATE vocal_core Qt6::Test)
+    add_test(NAME native-capture COMMAND vocal-capture-tests)
     qt_add_executable(vocal-feature-tests tests/FeatureTests.cpp)
     target_link_libraries(vocal-feature-tests PRIVATE vocal_core Qt6::Test Qt6::Widgets)
     add_test(NAME native-features COMMAND vocal-feature-tests -platform offscreen)

@@ -11,10 +11,12 @@
 #include <QCommandLineParser>
 #include <QDir>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QLockFile>
 #include <QMenu>
 #include <QPointer>
 #include <QQmlApplicationEngine>
+#include <QQmlProperty>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QStandardPaths>
@@ -63,6 +65,7 @@ int main(int argc, char *argv[]) {
          {"smoke-page", "Settings page for UI verification", "index", "0"},
          {"smoke-theme", "Theme for UI verification", "theme"},
          {"smoke-overlay", "Capture the compact or full voice overlay", "layout"},
+         {"smoke-overlay-text", "Override preview text for layout regression", "text"},
          {"smoke-scroll", "Scroll position for UI verification", "pixels", "0"},
          {"smoke-native-frame", "Capture the OS-composited window including its corners"},
          {"smoke-resource-refresh", "Verify resource rows survive repeated statistics updates"},
@@ -73,6 +76,8 @@ int main(int argc, char *argv[]) {
          {"profile-wheel", "Use real Qt wheel events for UI profiling"},
          {"pipeline-test", "Run local 16 kHz float PCM through the complete pipeline without input hooks", "pcm"},
          {"pipeline-segments", "Number of test segments", "count", "1"},
+         {"pipeline-packet-ms", "Feed fixture through continuous capture segmentation", "ms", "0"},
+         {"pipeline-cold-start", "Feed audio before recognition workers are ready"},
          {"smoke-test", "Save a UI screenshot after model startup, then exit", "png"}});
     parser.process(app);
     const auto dataDir = parser.isSet("data-dir") ? parser.value("data-dir")
@@ -94,18 +99,58 @@ int main(int argc, char *argv[]) {
                                  !parser.isSet("pipeline-test") && !parser.isSet("profile-ui"));
     if (parser.isSet("pipeline-test")) {
         bool started = false, finished = false;
+        bool sawOfflinePreview = false, sawCommittedRecording = false, correctingContext = false;
+        QJsonArray outputRequests, punctuationSources, segmentTranscripts;
+        QString contextCorrectionSource;
+        QObject::connect(&controller, &AppController::textOutputRequested, &app, [&](const QString &text, bool final) {
+            outputRequests.append(QJsonObject{{"text", text}, {"final", final}, {"recording", controller.recording()}});
+        });
+        QObject::connect(&controller, &AppController::punctuationRequested, &app, [&](const QString &text) {
+            punctuationSources.append(text);
+        });
+        QObject::connect(&controller, &AppController::contextCorrectionRequested, &app, [&](const QString &text) {
+            contextCorrectionSource = text;
+        });
+        QObject::connect(&controller, &AppController::segmentRecognized, &app,
+                         [&](const QString &raw, const QString &corrected) {
+            segmentTranscripts.append(QJsonObject{{"raw", raw}, {"corrected", corrected}});
+        });
+        int contextPasses = 0;
+        bool capturedWhileLoading = false;
         QObject::connect(&controller, &AppController::changed, &app, [&] {
-            if (controller.state() == "ready" && !started) {
+            if (!started && (controller.state() == "ready" ||
+                             (parser.isSet("pipeline-cold-start") && controller.state() == "loading"))) {
                 started = true;
                 controller.transcribeForTest(parser.value("pipeline-test"), 16000,
-                                             parser.value("pipeline-segments").toInt());
+                                             parser.value("pipeline-segments").toInt(), 0,
+                                             parser.value("pipeline-packet-ms").toInt());
                 return;
+            }
+            if (started && controller.sessionActive()) {
+                capturedWhileLoading |= controller.captureReady() && !controller.recognitionReady();
+                sawOfflinePreview |= controller.settings()["streamingModel"] == "none" && !controller.liveText().isEmpty();
+                sawCommittedRecording |= controller.recording() && !controller.committedText().isEmpty();
+                if (controller.correctingContext() && !correctingContext)
+                    ++contextPasses;
+                correctingContext = controller.correctingContext();
             }
             if (started && !finished && (controller.state() == "ready" || controller.state() == "error")) {
                 finished = true;
                 const QJsonObject event{{"type", "pipeline-result"},
                                         {"text", controller.result()},
                                         {"error", controller.error()},
+                                        {"offlinePreview", sawOfflinePreview},
+                                        {"committedWhileRecording", sawCommittedRecording},
+                                        {"contextPasses", contextPasses},
+                                        {"decodePasses", controller.decodePasses()},
+                                        {"segmentTranscripts", segmentTranscripts},
+                                        {"contextCorrectionSource", contextCorrectionSource},
+                                        {"punctuationPasses", controller.punctuationPasses()},
+                                        {"punctuationSources", punctuationSources},
+                                        {"outputRequests", outputRequests},
+                                        {"capturedWhileLoading", capturedWhileLoading},
+                                        {"segments", controller.history().isEmpty() ? 0 : controller.history().first().toMap()["segments"].toInt()},
+                                        {"raw", controller.history().isEmpty() ? QString{} : controller.history().first().toMap()["raw"].toString()},
                                         {"history", controller.history().size()}};
                 printf("%s\n", QJsonDocument(event).toJson(QJsonDocument::Compact).constData());
                 fflush(stdout);
@@ -222,7 +267,8 @@ int main(int argc, char *argv[]) {
             if (!shell)
                 return 5;
             window->hide();
-            overlay->setProperty("compact", parser.value("smoke-overlay") != "full");
+            if (parser.value("smoke-overlay") != "auto")
+                QQmlProperty::write(overlay, "compact", parser.value("smoke-overlay") != "full");
             auto started = std::make_shared<bool>(false);
             auto sawFinishing = std::make_shared<bool>(false);
             auto flickered = std::make_shared<bool>(false);
@@ -231,13 +277,20 @@ int main(int argc, char *argv[]) {
             auto freshFrames = std::make_shared<int>(0);
             const auto pcm = parser.value("smoke-overlay-pipeline");
             const auto screenshot = parser.value("smoke-test");
+            const auto releaseReady = [overlay, shell] {
+                return overlay->isVisible() && overlay->opacity() >= 0.99 && shell->opacity() >= 0.99;
+            };
             QObject::connect(shell, &QQuickItem::opacityChanged, window, [=, &controller] {
-                if (*started && controller.sessionActive() && !controller.recording() && shell->opacity() < 0.99)
+                if (*started && controller.sessionActive() && !controller.recording() && shell->opacity() < 0.99) {
+                    qWarning() << "Overlay faded during finishing:" << shell->opacity();
                     *flickered = true;
+                }
             });
             QObject::connect(overlay, &QWindow::visibleChanged, window, [=, &controller](bool visible) {
-                if (*started && controller.sessionActive() && (!visible || overlay->opacity() > 0))
+                if (*started && controller.sessionActive() && (!visible || overlay->opacity() > 0)) {
+                    qWarning() << "Overlay visibility changed during session:" << visible << overlay->opacity();
                     *flickered = true;
+                }
             });
             QObject::connect(overlay, &QWindow::opacityChanged, window, [=, &controller](qreal opacity) {
                 if (opacity < 0.99 || !controller.sessionActive())
@@ -246,23 +299,32 @@ int main(int argc, char *argv[]) {
                 if (!controller.recording() || !overlay->property("committed").toString().isEmpty() ||
                     !overlay->property("live").toString().isEmpty() ||
                     overlay->position() != controller.overlayPosition() ||
-                    overlay->property("waitingForFirstFrame").toBool())
+                    overlay->property("waitingForFirstFrame").toBool()) {
+                    qWarning() << "Overlay first frame mismatch:" << controller.recording()
+                               << overlay->property("committed") << overlay->property("live")
+                               << overlay->position() << controller.overlayPosition()
+                               << overlay->property("waitingForFirstFrame");
                     *flickered = true;
+                }
             });
             QObject::connect(&controller, &AppController::changed, window, [=, &controller, &app] {
                 if (!*started && controller.state() == "ready") {
                     *started = true;
-                    controller.transcribeForTest(pcm, 16000, 1, 500);
+                    controller.transcribeForTest(pcm, 16000, 1, 500, 0, releaseReady);
                 } else if (*started && controller.sessionActive() && !controller.recording() && !*sawFinishing) {
                     *sawFinishing = true;
                     QTimer::singleShot(0, window, [=] {
-                        if (!overlay->isVisible() || overlay->opacity() < 0.99 || shell->opacity() < 0.99)
+                        if (!overlay->isVisible() || overlay->opacity() < 0.99 || shell->opacity() < 0.99) {
+                            qWarning() << "Overlay not opaque at release:" << overlay->isVisible()
+                                       << overlay->opacity() << shell->opacity();
                             *flickered = true;
+                        }
                         overlay->grabWindow().save(screenshot);
                     });
                 } else if (*started && !controller.sessionActive() && !*ending) {
                     *ending = true;
-                    QTimer::singleShot(250, window, [=, &controller, &app] {
+                    const int hold = overlay->property("compact").toBool() ? 0 : overlay->property("resultHoldMs").toInt();
+                    QTimer::singleShot(hold + 300, window, [=, &controller, &app] {
                         ++*completed;
                         const bool ok = *sawFinishing && !*flickered && !overlay->isVisible() &&
                                         overlay->opacity() == 0 && !controller.result().isEmpty() &&
@@ -270,11 +332,13 @@ int main(int argc, char *argv[]) {
                         if (ok && *completed < 2) {
                             *sawFinishing = false;
                             *ending = false;
-                            controller.transcribeForTest(pcm, 16000, 1, 500);
+                            controller.transcribeForTest(pcm, 16000, 1, 500, 0, releaseReady);
                             return;
                         }
                         qInfo() << "Overlay recording-to-finishing continuity:" << ok << "sessions:" << *completed
-                                << "fresh frames:" << *freshFrames;
+                                << "fresh frames:" << *freshFrames << "finishing:" << *sawFinishing
+                                << "flickered:" << *flickered << "visible:" << overlay->isVisible()
+                                << "opacity:" << overlay->opacity();
                         app.exit(ok ? 0 : 13);
                     });
                 }
@@ -321,10 +385,11 @@ int main(int argc, char *argv[]) {
         auto scheduled = std::make_shared<bool>(false);
         const auto screenshot = parser.value("smoke-test");
         const auto overlayLayout = parser.value("smoke-overlay");
+        const auto overlayText = parser.value("smoke-overlay-text");
         const auto scrollPosition = parser.value("smoke-scroll").toDouble();
         const bool nativeFrame = parser.isSet("smoke-native-frame");
         const bool uiOnly = parser.isSet("smoke-ui-only");
-        auto finish = [scheduled, screenshot, overlayLayout, scrollPosition, nativeFrame, uiOnly, window, &controller,
+        auto finish = [scheduled, screenshot, overlayLayout, overlayText, scrollPosition, nativeFrame, uiOnly, window, &controller,
                        &app] {
             if (*scheduled)
                 return;
@@ -344,14 +409,20 @@ int main(int argc, char *argv[]) {
                         return;
                     }
                     window->hide();
-                    captureWindow->setProperty("compact", overlayLayout == "compact");
-                    captureWindow->setProperty("position", QPoint(200, 200));
-                    captureWindow->setProperty("busy", true);
-                    captureWindow->setProperty("levels", QVariantList{0.2, 0.7, 0.9, 0.5, 0.3});
-                    captureWindow->setProperty("committed", QString::fromUtf8("完全就是给懒鬼用的。"));
-                    captureWindow->setProperty("live", QString::fromUtf8("明天早上九点开会。"));
-                    captureWindow->setProperty("message", QString::fromUtf8("正在听"));
-                    captureWindow->setProperty("sessionActive", true);
+                    if (overlayLayout != "auto")
+                        QQmlProperty::write(captureWindow, "compact", overlayLayout == "compact");
+                    else if (captureWindow->property("displayMode").toString() != controller.settings()["overlayTextMode"].toString()) {
+                        app.exit(8);
+                        return;
+                    }
+                    // Mock data must replace bindings so unrelated controller updates cannot reset it.
+                    QQmlProperty::write(captureWindow, "position", QPoint(200, 200));
+                    QQmlProperty::write(captureWindow, "busy", true);
+                    QQmlProperty::write(captureWindow, "levels", QVariantList{0.2, 0.7, 0.9, 0.5, 0.3});
+                    QQmlProperty::write(captureWindow, "committed", overlayText.isEmpty() ? QString::fromUtf8("完全就是给懒鬼用的。") : overlayText);
+                    QQmlProperty::write(captureWindow, "live", overlayText.isEmpty() ? QString::fromUtf8("明天早上九点开会。") : QString{});
+                    QQmlProperty::write(captureWindow, "message", QString::fromUtf8("正在听"));
+                    QQmlProperty::write(captureWindow, "sessionActive", true);
                 }
                 QTimer::singleShot(600, &app, [screenshot, nativeFrame, uiOnly, captureWindow, &controller, &app] {
                     if (captureWindow->objectName() == "voiceOverlay") {
@@ -362,12 +433,20 @@ int main(int argc, char *argv[]) {
                             return;
                         }
                     }
+                    if (captureWindow->objectName() == "voiceOverlay") {
+                        const QJsonObject dimensions{{"width", captureWindow->width()}, {"height", captureWindow->height()},
+                            {"textHeight", captureWindow->property("textHeight").toDouble()},
+                            {"mode", captureWindow->property("displayMode").toString()}};
+                        printf("%s\n", QJsonDocument(dimensions).toJson(QJsonDocument::Compact).constData());
+                        fflush(stdout);
+                    }
                     const bool saved =
                         nativeFrame ? captureWindow->screen()->grabWindow(captureWindow->winId()).save(screenshot)
                                     : captureWindow->grabWindow().save(screenshot);
                     if (captureWindow->objectName() == "voiceOverlay" && saved) {
                         captureWindow->setProperty("sessionActive", false);
-                        QTimer::singleShot(250, &app,
+                        const int hold = captureWindow->property("compact").toBool() ? 0 : captureWindow->property("resultHoldMs").toInt();
+                        QTimer::singleShot(hold + 300, &app,
                                            [captureWindow, &app] { app.exit(captureWindow->isVisible() ? 7 : 0); });
                         return;
                     }

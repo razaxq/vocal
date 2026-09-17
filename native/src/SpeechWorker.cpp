@@ -27,6 +27,7 @@ class Recognizer {
     const SherpaOnnxOfflineRecognizer *recognizer = nullptr;
     const SherpaOnnxOfflinePunctuation *punctuation = nullptr;
     bool hotwordSupport = false;
+    int punctuationCalls = 0;
     Dictionary dictionary;
     template <class T> T resolve(const char *name) {
         auto symbol = library.resolve(name);
@@ -143,6 +144,7 @@ class Recognizer {
     }
     QString punctuate(QString text) {
         if (!text.isEmpty() && punctuation) {
+            ++punctuationCalls;
             const auto utf8 = text.toUtf8();
             const auto *out = SherpaOfflinePunctuationAddPunct(punctuation, utf8.constData());
             if (out) {
@@ -152,9 +154,11 @@ class Recognizer {
         }
         return text;
     }
+    int punctuations() const { return punctuationCalls; }
     QString decode(const QVector<float> &samples, int rate, const QJsonObject &request = {}) {
+        const bool addPunctuation = request["addPunctuation"].toBool(true);
         if (!recognizer)
-            return punctuate(request["streamText"].toString());
+            return addPunctuation ? punctuate(request["streamText"].toString()) : request["streamText"].toString();
         if (!hasVoice(samples, rate))
             return {};
         QStringList words;
@@ -192,7 +196,7 @@ class Recognizer {
             if (!candidates.isEmpty())
                 text = run(candidates);
         }
-        return punctuate(text);
+        return addPunctuation ? punctuate(text) : text;
     }
     QString wave(const QString &path) {
         const auto utf8 = path.toUtf8();
@@ -237,9 +241,11 @@ int runSpeechWorker(const QStringList &args) {
                 continue;
             }
             if (request["type"] == "punctuate") {
+                const int before = recognizer.punctuations();
+                const auto text = recognizer.punctuate(request["text"].toString());
                 send({{"type", "result"},
                       {"id", request["id"]},
-                      {"text", recognizer.punctuate(request["text"].toString())}});
+                      {"text", text}, {"punctuationCalls", recognizer.punctuations() - before}});
                 continue;
             }
             const auto path = request["path"].toString();
@@ -253,8 +259,10 @@ int runSpeechWorker(const QStringList &args) {
             QVector<float> samples(bytes.size() / 4);
             memcpy(samples.data(), bytes.constData(), bytes.size());
             timer.restart();
+            const int before = recognizer.punctuations();
             const auto text = recognizer.decode(samples, rate, request);
-            send({{"type", "result"}, {"id", request["id"]}, {"text", text}, {"elapsedMs", timer.elapsed()}});
+            send({{"type", "result"}, {"id", request["id"]}, {"text", text}, {"elapsedMs", timer.elapsed()},
+                  {"punctuationCalls", recognizer.punctuations() - before}});
         }
         return 0;
     } catch (const std::exception &error) {

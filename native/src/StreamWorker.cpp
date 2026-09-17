@@ -103,7 +103,7 @@ class Streaming {
         if (!finish) {
             const int rate = request["sampleRate"].toInt();
             const auto bytes = QByteArray::fromBase64(request["samples"].toString().toLatin1());
-            if (rate < 8000 || rate > 192000 || bytes.size() % 4 || bytes.size() > rate * 4 * 30)
+            if (rate < 8000 || rate > 192000 || bytes.size() % 4 || bytes.size() > rate * 4 * 120)
                 throw std::runtime_error("Invalid stream audio");
             QVector<float> samples(bytes.size() / 4);
             memcpy(samples.data(), bytes.data(), bytes.size());

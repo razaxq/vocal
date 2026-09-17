@@ -1,5 +1,8 @@
 #pragma once
 #include "AudioCapture.h"
+#include "AsyncAudioCapture.h"
+#include "AudioSegmenter.h"
+#include <functional>
 #include "DesktopServices.h"
 #include "LlmService.h"
 #include "ModelManager.h"
@@ -29,7 +32,9 @@ class AppController : public QObject {
     Q_PROPERTY(QString liveText READ liveText NOTIFY changed)
     Q_PROPERTY(QString error READ error NOTIFY changed)
     Q_PROPERTY(bool recording READ recording NOTIFY changed)
+    Q_PROPERTY(bool captureReady READ captureReady NOTIFY changed)
     Q_PROPERTY(bool sessionActive READ sessionActive NOTIFY changed)
+    Q_PROPERTY(bool correctingContext READ correctingContext NOTIFY changed)
     Q_PROPERTY(bool serviceEnabled READ serviceEnabled NOTIFY settingsChanged)
     Q_PROPERTY(double level READ level NOTIFY levelChanged)
     Q_PROPERTY(double testLevel READ testLevel NOTIFY levelChanged)
@@ -43,6 +48,7 @@ class AppController : public QObject {
     Q_PROPERTY(QString version READ version CONSTANT)
     Q_PROPERTY(bool inputSupported READ inputSupported CONSTANT)
     Q_PROPERTY(QPoint overlayPosition READ overlayPosition NOTIFY changed)
+    Q_PROPERTY(QRect overlayArea READ overlayArea NOTIFY changed)
     Q_PROPERTY(QVariantMap resources READ resources NOTIFY resourcesChanged)
     Q_PROPERTY(QAbstractItemModel *resourceProcesses READ resourceProcesses CONSTANT)
   public:
@@ -56,12 +62,20 @@ class AppController : public QObject {
     QAbstractItemModel *punctuationModels() { return &m_punctuationRows; }
     QVariantList devices() const { return m_audio.devices(); }
     QString state() const { return m_state; }
-    QString result() const { return m_result + m_partial; }
+    QString result() const;
     QString committedText() const { return m_result; }
-    QString liveText() const { return m_partial; }
+    QString liveText() const;
     QString error() const { return m_error; }
     bool recording() const { return m_recording; }
+    bool captureReady() const { return m_captureReady; }
+    bool recognitionReady() const {
+        return m_offline.ready() && (m_settings.values()["modelId"] != "none" || m_stream.ready());
+    }
     bool sessionActive() const { return m_session; }
+    bool correctingContext() const { return m_finalCorrectionJob != 0; }
+    int decodePasses() const { return m_decodePasses; }
+    bool punctuatingFinal() const { return m_finalPunctuationJob != 0; }
+    int punctuationPasses() const { return m_punctuationPasses; }
     bool serviceEnabled() const { return m_settings.values()["serviceEnabled"].toBool(true); }
     double level() const { return m_level; }
     double testLevel() const { return m_testLevel; }
@@ -75,9 +89,12 @@ class AppController : public QObject {
     QString version() const;
     bool inputSupported() const { return m_platform->inputSupported(); }
     QPoint overlayPosition() const { return m_overlayPosition; }
+    QRect overlayArea() const { return m_overlayArea; }
+    Q_INVOKABLE void setOverlaySize(int width, int height);
     QVariantMap resources() const { return m_resources; }
     QAbstractItemModel *resourceProcesses() { return &m_resourceRows; }
-    void transcribeForTest(const QString &path, int rate, int segments = 1, int releaseDelayMs = 0);
+    void transcribeForTest(const QString &path, int rate, int segments = 1, int releaseDelayMs = 0, int packetMs = 0,
+                           std::function<bool()> releaseReady = {});
     Q_INVOKABLE void setSetting(const QString &key, const QVariant &value);
     Q_INVOKABLE void toggleRecording();
     Q_INVOKABLE void cancelRecording();
@@ -103,6 +120,10 @@ class AppController : public QObject {
         emit changed();
     }
   signals:
+    void textOutputRequested(const QString &text, bool final);
+    void punctuationRequested(const QString &source);
+    void contextCorrectionRequested(const QString &source);
+    void segmentRecognized(const QString &raw, const QString &corrected);
     void changed();
     void settingsChanged();
     void modelsChanged();
@@ -128,13 +149,20 @@ class AppController : public QObject {
     bool updateOverlayPosition();
     void start(bool inject);
     void finish();
+    void finishCapture();
+    void configureCapture();
+    void resetTranscript();
     void cutSegment(QVector<float> samples, int rate);
     void frames(const QVector<float> &samples, int rate);
     void feedStream();
+    void queueStreamAudio(const QVector<float> &samples);
     void pump();
     void drainJobs();
     void completeSession();
-    void insertText(const QString &text);
+    void insertText(const QString &text, bool final = false);
+    void requestPunctuation();
+    void finishOutput();
+    void endSession();
     void fail(const QString &message);
     void saveHistory();
     void writeHistory();
@@ -144,7 +172,8 @@ class AppController : public QObject {
     ModelManager m_manager;
     ModelRows m_offlineRows, m_streamRows, m_correctionRows, m_punctuationRows;
     ModelRows m_resourceRows;
-    AudioCapture m_audio, m_testAudio;
+    AsyncAudioCapture m_audio, m_testAudio;
+    AudioSegmenter m_segmenter;
     std::unique_ptr<Platform> m_platform;
     TriggerController m_triggers;
     TextOutput m_output;
@@ -159,16 +188,30 @@ class AppController : public QObject {
     QMap<int, QString> m_abandonedAudio;
     QVector<float> m_streamBuffer;
     QString m_state = "loading", m_result, m_partial, m_error, m_raw;
+    // Model input and displayed punctuation are separate, immutable snapshots.
+    QString m_unpunctuated, m_punctuationSource, m_punctuatedSource;
     QVariantList m_history;
-    double m_level = 0, m_testLevel = 0, m_silenceMs = 0, m_segmentMs = 0;
+    double m_level = 0, m_testLevel = 0;
+    qsizetype m_streamAccepted = 0;
     quintptr m_target = 0;
     QPoint m_overlayPosition;
+    QRect m_overlayArea;
+    QSize m_overlaySize{420, 92};
     QVariantMap m_resources;
     QElapsedTimer m_uptime, m_resourceTime;
     QMap<qint64, quint64> m_cpuTimes;
     int m_request = 0, m_segment = 0, m_asrJob = 0, m_correctionJob = 0, m_generation = 0, m_segments = 0,
         m_duration = 0, m_lastRolling = 0;
     int m_streamRate = 16000, m_streamReplayJob = 0;
+    int m_finalCorrectionJob = 0;
+    int m_decodePasses = 0;
+    int m_finalPunctuationJob = 0, m_punctuationPasses = 0;
+    bool m_finalPunctuationDone = false;
+    bool m_finalCorrectionDone = false;
+    bool m_waitingOutput = false;
+    bool m_captureReady = false;
+    bool m_captureStopping = false;
+    bool m_allowMicWarmup = false;
     bool m_recording = false, m_testing = false, m_inject = false, m_session = false, m_streamStarted = false,
-         m_finishing = false, m_cutPending = false, m_loadingRoles = false;
+         m_finishing = false, m_limitPending = false, m_loadingRoles = false;
 };

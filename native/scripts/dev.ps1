@@ -23,6 +23,12 @@ $env:QT_MEDIA_BACKEND = 'windows'
 $env:QT_FORCE_STDERR_LOGGING = '1'
 $buildDir = if ([IO.Path]::IsPathRooted($BuildDirectory)) { $BuildDirectory } else { Join-Path $repo $BuildDirectory }
 $app = Join-Path $buildDir 'bin/vocal-native.exe'
+$runningBuild = @(Get-Process -Name 'vocal-native' -ErrorAction SilentlyContinue | Where-Object {
+    $_.Path -and [IO.Path]::GetFullPath($_.Path) -eq [IO.Path]::GetFullPath($app)
+})
+if ($runningBuild.Count) {
+    throw "Vocal is still running from this build directory. Choose Quit in its tray menu, then run this command again. Closing the settings window only hides it to the tray. PID: $($runningBuild.Id -join ', ')"
+}
 $runtime = $RuntimeDirectory
 if (!$runtime) { $runtime = Join-Path $repo 'native/dependencies/node_modules/sherpa-onnx-win-x64' }
 if (!(Test-Path -LiteralPath "$runtime/package.json")) { throw 'Run native/scripts/setup.ps1 to install the native SDK.' }
