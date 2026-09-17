@@ -11,3 +11,6 @@
 
 托盘图标在 `../resources/`，是另一版：去掉了波形条、让「文」占满画布。
 16px 下「文 + 三根波形」会糊成一团，托盘要的是一眼认出来，不是还原全图。
+
+安装器同样使用 `icon.ico`。向导位图位于 `native/installer/`，使用
+`./native/scripts/installer-artwork.ps1` 从现有项目 Logo 重新生成。

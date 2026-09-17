@@ -1,20 +1,23 @@
 Unicode true
 RequestExecutionLevel user
+ManifestDPIAware true
 SetCompressor /SOLID lzma
 SetCompressorDictSize 64
-Name "Vocal Native"
+Name "Vocal"
 OutFile "${OUTPUT}"
-InstallDir "$LOCALAPPDATA\Programs\VocalNative"
+InstallDir "$LOCALAPPDATA\Programs\Vocal"
 InstallDirRegKey HKCU "Software\VocalNative" "InstallDir"
 BrandingText "Vocal · Ramos"
 SetFont "Microsoft YaHei UI" 9
 ShowInstDetails show
+AutoCloseWindow true
 ShowUninstDetails show
 VIProductVersion "${PRODUCT_VERSION}.0"
-VIAddVersionKey "ProductName" "Vocal Native"
+VIAddVersionKey "ProductName" "Vocal"
 VIAddVersionKey "CompanyName" "Ramos"
-VIAddVersionKey "FileDescription" "Vocal Native Setup"
+VIAddVersionKey "FileDescription" "Vocal Installer"
 VIAddVersionKey "FileVersion" "${VERSION}"
+VIAddVersionKey "ProductVersion" "${VERSION}"
 VIAddVersionKey "LegalCopyright" "Copyright 2026 Ramos"
 !include "MUI2.nsh"
 !include "FileFunc.nsh"
@@ -49,26 +52,37 @@ Function .onInstSuccess
     Exec '"$INSTDIR\vocal-native.exe"'
 success_done:
 FunctionEnd
-!define MUI_ABORTWARNING
-!define MUI_FINISHPAGE_RUN "$INSTDIR\vocal-native.exe"
-!define MUI_FINISHPAGE_RUN_TEXT "$(LaunchVocal)"
-!insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_DIRECTORY
+!define MUI_ICON "${__FILEDIR__}\..\..\build\icon.ico"
+!define MUI_UNICON "${__FILEDIR__}\..\..\build\icon.ico"
+!define MUI_HEADERIMAGE
+!define MUI_HEADERIMAGE_RIGHT
+!define MUI_HEADERIMAGE_BITMAP "${__FILEDIR__}\header.bmp"
+!define MUI_CUSTOMFUNCTION_GUIINIT DesignWindow
+!insertmacro MUI_PAGE_INIT
+!insertmacro MUI_PAGE_FUNCTION_FULLWINDOW
+Page custom DesignStart DesignValidate
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW DesignProgress
+!define MUI_PAGE_CUSTOMFUNCTION_LEAVE DesignProgressLeave
 !insertmacro MUI_PAGE_INSTFILES
-!insertmacro MUI_PAGE_FINISH
+Page custom DesignFinish DesignFinishLeave
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "SimpChinese"
 !insertmacro MUI_LANGUAGE "English"
-LangString LaunchVocal ${LANG_SIMPCHINESE} "启动 Vocal"
-LangString LaunchVocal ${LANG_ENGLISH} "Launch Vocal"
-Section "Vocal Native"
+SetFont /LANG=${LANG_SIMPCHINESE} "Microsoft YaHei UI" 9
+SetFont /LANG=${LANG_ENGLISH} "Segoe UI" 9
+LangString LaunchVocal ${LANG_SIMPCHINESE} "打开 Vocal"
+LangString LaunchVocal ${LANG_ENGLISH} "Open Vocal"
+!include "${__FILEDIR__}\design.nsh"
+Section "Vocal"
     SetOutPath "$INSTDIR"
     File /r /x uninstall-files.nsh "${APP_DIR}\*"
     WriteUninstaller "$INSTDIR\Uninstall.exe"
-    CreateShortcut "$SMPROGRAMS\Vocal Native.lnk" "$INSTDIR\vocal-native.exe"
+    Delete "$SMPROGRAMS\Vocal Native.lnk"
+    CreateShortcut "$SMPROGRAMS\Vocal.lnk" "$INSTDIR\vocal-native.exe"
     WriteRegStr HKCU "Software\VocalNative" "InstallDir" "$INSTDIR"
-    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VocalNative" "DisplayName" "Vocal Native"
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VocalNative" "DisplayName" "Vocal"
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VocalNative" "DisplayIcon" '"$INSTDIR\vocal-native.exe",0'
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VocalNative" "DisplayVersion" "${VERSION}"
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VocalNative" "Publisher" "Ramos"
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VocalNative" "URLInfoAbout" "https://blog.dtft.net/about/"
@@ -76,6 +90,7 @@ Section "Vocal Native"
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VocalNative" "UninstallString" '"$INSTDIR\Uninstall.exe"'
 SectionEnd
 Section "Uninstall"
+    Delete "$SMPROGRAMS\Vocal.lnk"
     Delete "$SMPROGRAMS\Vocal Native.lnk"
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "VocalNative"
     DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VocalNative"

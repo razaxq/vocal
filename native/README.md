@@ -79,7 +79,20 @@ python native/tests/migration_protocol.py --app data/native-build/bin/vocal-nati
 
 需预装 NSIS，或传入 `-NsisPath <makensis.exe>`。生成新的本地暂存目录、最大压缩 ZIP、SHA-256 清单及 NSIS 预览安装包，位置为 `data/native-dist`。
 支持 `-BuildDirectory data/native-migration-build` 和 `-OutputDirectory <新目录>`。已有同名产物时停止，避免混入旧文件。打包不包含模型或原始 `base.dict.yaml`。
-安装详情默认展开；发布者为 Ramos；完成页可启动应用。
+安装器与应用使用同一套浅色配色、绿色主色和 8 DIP 圆角控件；按钮与启动开关采用 GDI+ 抗锯齿绘制，
+保留 Windows 按钮的鼠标、键盘与辅助功能语义，不增加运行时依赖。窗口圆角与阴影交给 Windows DWM。
+窗口采用单列布局，主按钮两侧留白相等；36 DIP 自定义标题栏与设置页一致，支持拖动、最小化和关闭。
+安装前关闭直接退出；安装完成后关闭与“完成”一致，遵循“打开 Vocal”开关。复制文件期间仍禁用关闭。
+默认安装到 `Programs/Vocal`，首页可修改位置；安装详情默认展开，完成页通过开关选择启动应用。
+旧版升级沿用已登记的安装目录。
+中文与英文随系统语言选择；发布者为 Ramos。
+安装器布局在 `installer/design.nsh`，其流程回归可运行 `tests/installer_ui.py`（使用隔离目录与无副作用载荷）。
+标题栏源文件为 `installer/frame.cpp`，打包脚本用现有 Qt MinGW 工具链编译小型 x86 辅助 DLL，
+仅供 NSIS 在临时目录加载，不安装到应用目录。手工运行 makensis 前可执行 `scripts/installer-frame.ps1`。
+文件夹选择器在 `installer/folder-dialog.cpp` 的独立 STA 线程运行，使用同线程的隐藏窗口承载系统对话框，
+避免 Shell 扩展和跨线程模态消息阻塞 NSIS。确认/取消时即传回结果，由主线程定时读取，
+不等待系统对话框收尾；取消保留原路径，Shell 清理在后台完成。
+`tests/installer_ui.py` 覆盖中文路径、连续选择/取消、主窗口响应和选择结束后的恢复时间。
 部署包可独立启动，不依赖开发用 Qt PATH。
 
 安装目录中的 `plugins/` 集中存放 Qt 插件，`qml/` 为界面运行库，`resources/` 为词库等资源，

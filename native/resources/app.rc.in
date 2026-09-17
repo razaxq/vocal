@@ -11,9 +11,9 @@ BEGIN
   BLOCK "040904b0"
   BEGIN
    VALUE "CompanyName", "Ramos\0"
-   VALUE "FileDescription", "Vocal Native\0"
+   VALUE "FileDescription", "Vocal\0"
    VALUE "FileVersion", "@VOCAL_APP_VERSION@\0"
-   VALUE "ProductName", "Vocal Native\0"
+   VALUE "ProductName", "Vocal\0"
    VALUE "ProductVersion", "@VOCAL_APP_VERSION@\0"
    VALUE "LegalCopyright", "Copyright 2026 Ramos\0"
   END

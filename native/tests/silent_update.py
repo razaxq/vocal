@@ -46,7 +46,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR args, int) {
         # Reuse actual callbacks; replace ALL install/uninstall sections. This
         # fixture writes only to the temporary target: no registry or shortcuts.
         production = (repo / 'native/installer/windows.nsi').read_text(encoding='utf-8')
-        callbacks = production[production.index('Function .onInit'):production.index('!define MUI_ABORTWARNING')]
+        callbacks = production[production.index('Function .onInit'):production.index('!define MUI_ICON')]
         installer = root / 'fixture-setup.exe'
         script = root / 'fixture.nsi'
         script.write_text('''Unicode true

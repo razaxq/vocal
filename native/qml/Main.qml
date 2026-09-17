@@ -25,6 +25,7 @@ ApplicationWindow {
             return;
         const anchor = select.mapToItem(scroller, 0, 0);
         if (anchor.y < 0 || anchor.y + select.height > scroller.availableHeight) {
+            select.popup.anchorVisible = false;
             select.popup.close();
             return;
         }
@@ -243,6 +244,7 @@ ApplicationWindow {
             radius: 8
             color: root.surface
             border.color: input.activeFocus ? root.accent : root.line
+            Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutQuad } }
         }
     }
     component Select: ComboBox {
@@ -287,7 +289,16 @@ ApplicationWindow {
                     return i;
             return -1;
         }
-        onActivated: root.controller.setSetting(settingKey, currentValue)
+        property bool pendingSelection: false
+        property var pendingValue
+        onActivated: {
+            if (popup.visible) {
+                pendingValue = currentValue;
+                pendingSelection = true;
+            } else {
+                root.controller.setSetting(settingKey, currentValue);
+            }
+        }
         contentItem: Text {
             text: select.displayText
             color: root.fg
@@ -321,6 +332,7 @@ ApplicationWindow {
             radius: 8
             color: root.surface
             border.color: select.activeFocus || select.popup.visible ? root.accent : root.line
+            Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutQuad } }
         }
         delegate: ItemDelegate {
             id: choice
@@ -355,10 +367,21 @@ ApplicationWindow {
             }
         }
         popup: Popup {
+            id: selectPopup
             parent: Overlay.overlay
             popupType: Popup.Item
             closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-            onOpened: {
+            property bool anchorVisible: true
+            enter: Transition {
+                NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 140; easing.type: Easing.OutQuad }
+                NumberAnimation { property: "scale"; from: 0.98; to: 1; duration: 140; easing.type: Easing.OutQuad }
+            }
+            exit: Transition {
+                enabled: selectPopup.anchorVisible
+                NumberAnimation { property: "opacity"; to: 0; duration: 100; easing.type: Easing.InQuad }
+            }
+            onAboutToShow: {
+                anchorVisible = true;
                 if (root.activeSelectPopup && root.activeSelectPopup !== select.popup)
                     root.activeSelectPopup.close();
                 root.activeSelectPopup = select.popup;
@@ -372,6 +395,11 @@ ApplicationWindow {
                 if (root.activeSelectPopup === select.popup) {
                     root.activeSelectPopup = null;
                     root.activeSelect = null;
+                }
+                if (select.pendingSelection) {
+                    const value = select.pendingValue;
+                    select.pendingSelection = false;
+                    root.controller.setSetting(select.settingKey, value);
                 }
             }
             x: select.mapToItem(Overlay.overlay, 0, 0).x
@@ -541,6 +569,7 @@ ApplicationWindow {
                 background: Rectangle {
                     color: root.surface
                     border.color: draft.activeFocus ? root.accent : root.line
+                    Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutQuad } }
                     radius: 8
                 }
             }
@@ -777,8 +806,8 @@ ApplicationWindow {
                     Layout.bottomMargin: 16
                     Row {
                         anchors.verticalCenter: parent.verticalCenter
-                        anchors.left: parent.left
-                        anchors.leftMargin: 4
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.verticalCenterOffset: 6
                         spacing: 10
                         Image {
                             source: "qrc:/vocal/resources/icon.png"

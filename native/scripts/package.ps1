@@ -82,7 +82,8 @@ $uninstallLines | Set-Content "$stage/uninstall-files.nsh" -Encoding utf8
 if ($LASTEXITCODE) { throw 'Archive creation failed' }
 $artifacts = @($archive)
 if ($Installer) {
-    & $NsisPath /V2 /INPUTCHARSET UTF8 "/DAPP_DIR=$stage" "/DOUTPUT=$installerFile" "/DVERSION=$version" "/DPRODUCT_VERSION=$($metadata.productVersion)" "$repo/native/installer/windows.nsi"
+    $frameDll = & "$PSScriptRoot/installer-frame.ps1" -Toolchain $Toolchain -OutputDirectory "$build/installer-frame"
+    & $NsisPath /V2 /INPUTCHARSET UTF8 "/DINSTALLER_FRAME=$frameDll" "/DAPP_DIR=$stage" "/DOUTPUT=$installerFile" "/DVERSION=$version" "/DPRODUCT_VERSION=$($metadata.productVersion)" "$repo/native/installer/windows.nsi"
     if ($LASTEXITCODE) { throw 'Native installer build failed' }
     $artifacts += $installerFile
 }
