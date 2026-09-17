@@ -161,7 +161,8 @@ class CoreTests : public QObject {
         trigger.configure(settings.values());
         QSignalSpy pressed(&trigger, &TriggerController::pressed), released(&trigger, &TriggerController::released);
         trigger.accept(0, true);
-        QTest::qWait(2);
+        // Release before dispatching the debounce timer. qWait(2) may run
+        // longer than 10 ms on a busy runner and accidentally accept the press.
         trigger.accept(0, false);
         QTest::qWait(20);
         QCOMPARE(pressed.size(), 0);
