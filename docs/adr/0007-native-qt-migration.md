@@ -31,7 +31,7 @@ QtCore 的信号槽、JSON、文件和进程 API 可以用于业务服务，无�
 
 ## 当前实现
 
-目录：`native/`，独立 CMake 构建；保留 Electron 源代码、启动方式与回归检查。v1.0.0 的发布工作流已改接 Qt 构建；尚未推送或公开发布。
+目录：`native/`，独立 CMake 构建；保留 Electron 源代码、启动方式与回归检查。v1.0.0 的发布工作流已改接 Qt 构建，云端 CI 首跑通过。
 
 ```text
 Qt Quick settings / overlay
