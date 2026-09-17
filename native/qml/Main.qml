@@ -18,6 +18,20 @@ ApplicationWindow {
     font.pixelSize: 13
     property int page: 0
     property bool closeToTray: false
+    property Popup activeSelectPopup: null
+    property ComboBox activeSelect: null
+    function positionSelect(select: ComboBox) {
+        if (!select.popup)
+            return;
+        const anchor = select.mapToItem(scroller, 0, 0);
+        if (anchor.y < 0 || anchor.y + select.height > scroller.availableHeight) {
+            select.popup.close();
+            return;
+        }
+        const point = select.mapToItem(Overlay.overlay, 0, select.height + 3);
+        select.popup.x = point.x;
+        select.popup.y = point.y;
+    }
     property bool en: controller.settings.language === "en"
     property bool dark: controller.settings.theme === "dark" || (controller.settings.theme === "system" && Application.styleHints.colorScheme === Qt.Dark)
     property color surface: dark ? "#242528" : "#ffffff"
@@ -152,8 +166,6 @@ ApplicationWindow {
         leftPadding: 6
         rightPadding: 6
         Accessible.name: root.tr("删除", "Delete")
-        ToolTip.visible: hovered
-        ToolTip.text: Accessible.name
         contentItem: Canvas {
             property color ink: deleteButton.enabled ? root.muted : root.subtle
             onInkChanged: requestPaint()
@@ -248,6 +260,27 @@ ApplicationWindow {
         implicitWidth: 240
         leftPadding: 10
         rightPadding: 28
+        wheelEnabled: false
+        property bool justClosed: false
+        Timer {
+            id: resetClosed
+            interval: 0
+            onTriggered: select.justClosed = false
+        }
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.LeftButton
+            onPressed: {
+                if (select.justClosed)
+                    return;
+                select.forceActiveFocus(Qt.MouseFocusReason);
+                if (select.popup.visible)
+                    select.popup.close();
+                else
+                    select.popup.open();
+            }
+            onWheel: event => root.scrollSettings(event)
+        }
         currentIndex: {
             for (let i = 0; i < options.length; i++)
                 if (options[i].value === root.controller.settings[settingKey])
@@ -322,7 +355,27 @@ ApplicationWindow {
             }
         }
         popup: Popup {
-            y: select.height + 3
+            parent: Overlay.overlay
+            popupType: Popup.Item
+            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+            onOpened: {
+                if (root.activeSelectPopup && root.activeSelectPopup !== select.popup)
+                    root.activeSelectPopup.close();
+                root.activeSelectPopup = select.popup;
+                root.activeSelect = select;
+                root.positionSelect(select);
+            }
+            onClosed: {
+                select.justClosed = true;
+                resetClosed.restart();
+                select.focus = false;
+                if (root.activeSelectPopup === select.popup) {
+                    root.activeSelectPopup = null;
+                    root.activeSelect = null;
+                }
+            }
+            x: select.mapToItem(Overlay.overlay, 0, 0).x
+            y: select.mapToItem(Overlay.overlay, 0, select.height + 3).y
             width: select.width
             padding: 4
             implicitHeight: Math.min(contentItem.implicitHeight + 8, 260)
@@ -880,6 +933,13 @@ ApplicationWindow {
             BoundedScroll {
                 id: scroller
                 objectName: "settingsScroll"
+                Connections {
+                    target: scroller.contentItem
+                    function onContentYChanged() {
+                        if (root.activeSelect)
+                            root.positionSelect(root.activeSelect);
+                    }
+                }
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true

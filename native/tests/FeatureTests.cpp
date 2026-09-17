@@ -3,6 +3,7 @@
 #include "ModelManager.h"
 #include "ModelRows.h"
 #include "NativeRelease.h"
+#include "NativeUpdate.h"
 #include "Settings.h"
 #include "TextCleanup.h"
 #include "TextOutput.h"
@@ -81,6 +82,15 @@ QByteArray tarMember(const QByteArray &path, const QByteArray &bytes, char type 
 class FeatureTests : public QObject {
     Q_OBJECT
   private slots:
+    void silentUpdatePreservesInstallDirectory() {
+        QProcess installer;
+        configureNativeUpdate(installer, "C:/Temp/Vocal Update.exe", 1234, "C:/Users/Test User/Vocal 中文");
+        QCOMPARE(installer.program(), "C:/Temp/Vocal Update.exe");
+        QCOMPARE(installer.arguments(), QStringList({"/S", "/APPUPDATE", "/WAITPID=1234"}));
+#ifdef Q_OS_WIN
+        QCOMPARE(installer.nativeArguments(), QString("/D=C:\\Users\\Test User\\Vocal 中文"));
+#endif
+    }
     void queuedDownloadsContinueAfterCancellationAndFailure() {
         QTemporaryDir temp;
         LocalHttp held, good, bad;

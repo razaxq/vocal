@@ -19,8 +19,18 @@ class SettingsFocus : public QObject {
             return false;
         const auto *mouse = static_cast<QMouseEvent *>(event);
         auto *editor = m_window->activeFocusItem();
+        // A popup lives in the overlay, outside its ComboBox's item bounds.
+        // Moving focus away before its delegate receives the press dismisses
+        // the menu and swallows the selection.
+        if (auto *popup = m_window->property("activeSelectPopup").value<QObject *>()) {
+            auto *content = popup->property("contentItem").value<QQuickItem *>();
+            if (popup->property("visible").toBool() && content &&
+                content->contains(content->mapFromScene(mouse->position())))
+                return false;
+        }
         if (mouse->button() == Qt::LeftButton && editor &&
-            (editor->inherits("QQuickTextInput") || editor->inherits("QQuickTextEdit")) &&
+            (editor->inherits("QQuickTextInput") || editor->inherits("QQuickTextEdit") ||
+             editor->inherits("QQuickComboBox")) &&
             !editor->contains(editor->mapFromScene(mouse->position()))) {
             QGuiApplication::inputMethod()->commit();
             editor->setFocus(false, Qt::MouseFocusReason);

@@ -1,6 +1,7 @@
 #include "DesktopServices.h"
 #include "Dictionary.h"
 #include "NativeRelease.h"
+#include "NativeUpdate.h"
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -218,7 +219,9 @@ void DesktopServices::installUpdate() {
             emit changed();
             return;
         }
-        if (QProcess::startDetached(path, {})) {
+        QProcess installer;
+        configureNativeUpdate(installer, path, QCoreApplication::applicationPid(), QCoreApplication::applicationDirPath());
+        if (installer.startDetached()) {
             QCoreApplication::quit();
             return;
         }

@@ -12,6 +12,7 @@
 #include <memory>
 #ifdef Q_OS_WIN
 #include <windows.h>
+#include <dwmapi.h>
 #endif
 
 inline QQuickItem *settingsItem(QQuickItem *root, const QString &name) {
@@ -27,9 +28,10 @@ inline QQuickItem *settingsItem(QQuickItem *root, const QString &name) {
 inline void verifySettings(QQuickWindow *window, AppController *controller, const QString &output) {
     struct Check {
         int step = 0, ticks = 0;
-        double scrollY = 0;
+        double scrollY = 0, popupY = 0, selectY = 0;
         QJsonObject result;
-        QPointer<QQuickItem> editor, view;
+        QPointer<QQuickItem> editor, view, select;
+        QPointer<QObject> popup;
     };
     auto check = std::make_shared<Check>();
     auto *timer = new QTimer(window);
@@ -45,20 +47,22 @@ inline void verifySettings(QQuickWindow *window, AppController *controller, cons
         qInfo().noquote() << bytes;
         QCoreApplication::exit(error.isEmpty() && saved ? 0 : 9);
     };
-    const auto click = [=](QPointF point) {
+    const auto pointer = [=](QPointF point, bool pressed) {
 #ifdef Q_OS_WIN
         const auto handle = reinterpret_cast<HWND>(window->winId());
         const auto nativePoint = (point * window->devicePixelRatio()).toPoint();
         const auto coordinates = MAKELPARAM(nativePoint.x(), nativePoint.y());
-        PostMessage(handle, WM_LBUTTONDOWN, MK_LBUTTON, coordinates);
-        PostMessage(handle, WM_LBUTTONUP, 0, coordinates);
+        PostMessage(handle, pressed ? WM_LBUTTONDOWN : WM_LBUTTONUP, pressed ? MK_LBUTTON : 0, coordinates);
 #else
         const QPointF global(window->mapToGlobal(point.toPoint()));
-        QMouseEvent down(QEvent::MouseButtonPress, point, global, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
-        QMouseEvent up(QEvent::MouseButtonRelease, point, global, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
-        QCoreApplication::sendEvent(window, &down);
-        QCoreApplication::sendEvent(window, &up);
+        QMouseEvent event(pressed ? QEvent::MouseButtonPress : QEvent::MouseButtonRelease, point, global,
+                          Qt::LeftButton, pressed ? Qt::LeftButton : Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &event);
 #endif
+    };
+    const auto click = [=](QPointF point) {
+        pointer(point, true);
+        pointer(point, false);
     };
     QObject::connect(timer, &QTimer::timeout, window, [=] {
         if (++check->ticks > 400) {
@@ -153,35 +157,126 @@ inline void verifySettings(QQuickWindow *window, AppController *controller, cons
             window->grabWindow().save(output + ".hotwords.png");
 #ifdef Q_OS_WIN
             {
+                const auto handle = reinterpret_cast<HWND>(window->winId());
                 const auto region = CreateRectRgn(0, 0, 0, 0);
-                const bool rounded = GetWindowRgn(reinterpret_cast<HWND>(window->winId()), region) != ERROR &&
-                                     !PtInRegion(region, 0, 0) &&
-                                     PtInRegion(region, qRound(18 * window->devicePixelRatio()), 1);
+                const bool unmasked = GetWindowRgn(handle, region) == ERROR;
                 DeleteObject(region);
-                check->result["nativeRoundedCorners"] = rounded;
-                if (!rounded) {
-                    finish("Native corner region missing");
+                DWORD preference = 0;
+                BOOL rendering = FALSE;
+                const bool nativeFrame =
+                    SUCCEEDED(DwmGetWindowAttribute(handle, 33, &preference, sizeof(preference))) && preference == 2 &&
+                    SUCCEEDED(
+                        DwmGetWindowAttribute(handle, DWMWA_NCRENDERING_ENABLED, &rendering, sizeof(rendering))) &&
+                    rendering;
+                check->result["nativeCompositedFrame"] = nativeFrame && unmasked;
+                if (!nativeFrame || !unmasked) {
+                    finish("Native composited frame missing or masked");
                     return;
                 }
-                window->screen()->grabWindow(window->winId()).save(output + ".native-frame.png");
+                const auto frame = window->frameGeometry().adjusted(-24, -24, 24, 24);
+                window->screen()
+                    ->grabWindow(0, frame.x(), frame.y(), frame.width(), frame.height())
+                    .save(output + ".native-frame.png");
             }
 #endif
             window->setProperty("page", 0);
+            window->setHeight(520);
             break;
         case 6: {
-            auto *select = settingsItem(window->contentItem(), "select-keyboardMode");
-            if (!select) {
+            check->select = settingsItem(window->contentItem(), "select-keyboardMode");
+            if (!check->select) {
                 finish("Dropdown missing");
                 return;
             }
-            click(select->mapToItem(window->contentItem(), QPointF(select->width() / 2, select->height() / 2)));
+            pointer(check->select->mapToItem(window->contentItem(), QPointF(30, 16)), true);
             break;
         }
         case 7:
+            check->popup = window->property("activeSelectPopup").value<QObject *>();
+            if (!check->popup || !check->popup->property("visible").toBool()) {
+                finish("Dropdown did not open on mouse press");
+                return;
+            }
+            check->result["dropdownOpensOnPress"] = true;
+            pointer(check->select->mapToItem(window->contentItem(), QPointF(30, 16)), false);
+            break;
+        case 8: {
+            if (!check->popup->property("visible").toBool()) {
+                finish("Mouse release closed dropdown");
+                return;
+            }
             window->grabWindow().save(output + ".dropdown.png");
+            check->popupY = check->popup->property("y").toDouble();
+            check->selectY = check->select->mapToItem(window->contentItem(), QPointF{}).y();
+            const QPointF point(window->width() - 35, window->height() - 90);
+#ifdef Q_OS_WIN
+            const auto handle = reinterpret_cast<HWND>(window->winId());
+            const auto native = (point * window->devicePixelRatio()).toPoint();
+            POINT global{native.x(), native.y()};
+            ClientToScreen(handle, &global);
+            PostMessage(handle, WM_MOUSEWHEEL, MAKEWPARAM(0, WORD(-120)), MAKELPARAM(global.x, global.y));
+#else
+            QWheelEvent event(point, window->mapToGlobal(point.toPoint()), {}, QPoint(0, -120), Qt::NoButton,
+                              Qt::NoModifier, Qt::NoScrollPhase, false);
+            QCoreApplication::sendEvent(window, &event);
+#endif
+            break;
+        }
+        case 9:
+            if (!check->popup->property("visible").toBool() ||
+                qAbs((check->popup->property("y").toDouble() - check->popupY) -
+                     (check->select->mapToItem(window->contentItem(), QPointF{}).y() - check->selectY)) > 1) {
+                finish("Dropdown did not follow its visible anchor");
+                return;
+            }
+            check->result["dropdownFollowsPageScroll"] = true;
+            check->view->setProperty("contentY", 240);
+            break;
+        case 10:
+            if (check->popup->property("visible").toBool() || check->select->hasActiveFocus()) {
+                finish("Offscreen anchor kept dropdown or focus");
+                return;
+            }
+            check->result["offscreenAnchorClosesDropdown"] = true;
+            check->view->setProperty("contentY", 0);
+            break;
+        case 11:
+            click(check->select->mapToItem(window->contentItem(), QPointF(30, 16)));
+            break;
+        case 12:
+            click(QPointF(window->width() - 35, window->height() - 90));
+            break;
+        case 13:
+            if (check->popup->property("visible").toBool() || check->select->hasActiveFocus()) {
+                finish("Outside press kept dropdown or its focus");
+                return;
+            }
+            check->result["outsidePressClearsDropdownFocus"] = true;
             controller->setServiceEnabled(true);
             break;
-        case 8:
+        case 14:
+            click(check->select->mapToItem(window->contentItem(), QPointF(30, 16)));
+            break;
+        case 15: {
+            auto *list = check->popup->property("contentItem").value<QQuickItem *>();
+            if (!check->popup->property("visible").toBool() || !list) {
+                finish("Dropdown failed to reopen for selection");
+                return;
+            }
+            click(list->mapToItem(window->contentItem(), QPointF(30, 34 + 17)));
+            break;
+        }
+        case 16:
+            check->select = settingsItem(window->contentItem(), "select-keyboardMode");
+            if (!check->select || check->select->property("currentIndex").toInt() != 1 ||
+                (check->popup && check->popup->property("visible").toBool()) ||
+                controller->settings().value("keyboardMode").toString() != "toggle") {
+                finish("Dropdown selection did not update setting");
+                return;
+            }
+            check->result["dropdownSelectionWorks"] = true;
+            break;
+        case 17:
             if (controller->state() != "ready")
                 return;
             check->result["resumed"] = true;
@@ -189,7 +284,7 @@ inline void verifySettings(QQuickWindow *window, AppController *controller, cons
             controller->setServiceEnabled(true);
             controller->setServiceEnabled(false); // Stop again while the workers are loading.
             break;
-        case 9:
+        case 18:
             check->result["pausedDuringLoad"] =
                 controller->state() == "paused" && controller->resourceProcesses()->rowCount() == 1;
             finish(check->result["pausedDuringLoad"].toBool() ? QString{} : "Workers survived pause during load");

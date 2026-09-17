@@ -32,6 +32,8 @@
 Qt 更新器读取 GitHub Release API，只接受匹配版本的 `Vocal-Native-Setup-*.exe`，
 校验 GitHub 提供的 SHA-256 和文件大小；不需要 Electron 的 `latest.yml` 或 `.blockmap`。
 启动时自动检查，自动更新开关控制是否随后下载安装。
+应用内更新静默安装到当前程序目录，等待旧进程及模型退出后覆盖文件并重启；
+直接双击安装包仍显示安装向导。v1.0.1 及更早的客户端不传静默参数，首次升级仍会显示向导。
 本地开发包带 `development: true`，不会安装正式更新；标签构建为 `false`。
 
 **Electron 到 Qt 的自动迁移尚未实现。** 本流程不向旧 Electron 更新器推送 Qt 安装器，
