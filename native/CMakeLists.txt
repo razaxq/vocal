@@ -22,6 +22,7 @@ qt_standard_project_setup(REQUIRES 6.8)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 qt_add_library(vocal_core STATIC
+    src/SessionDebug.cpp src/SessionDebug.h
     src/AudioCapture.cpp src/AudioCapture.h
     src/AsyncAudioCapture.cpp src/AsyncAudioCapture.h
     src/AudioSegmenter.cpp src/AudioSegmenter.h
@@ -48,6 +49,8 @@ else()
 endif()
 
 qt_add_executable(vocal-native src/main.cpp src/AppController.cpp src/AppController.h)
+qt_add_resources(vocal-native build_info PREFIX "/vocal" BASE "${CMAKE_CURRENT_BINARY_DIR}"
+    FILES "${CMAKE_CURRENT_BINARY_DIR}/native-build.json")
 target_compile_definitions(vocal-native PRIVATE VOCAL_APP_VERSION="${VOCAL_APP_VERSION}")
 target_link_libraries(vocal-native PRIVATE vocal_core Qt6::Widgets Qt6::Quick Qt6::QuickControls2)
 qt_add_qml_module(vocal-native URI Vocal VERSION 1.0 QML_FILES qml/Main.qml qml/VoiceOverlay.qml)
@@ -80,6 +83,9 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
+    qt_add_executable(vocal-debug-tests tests/DebugTests.cpp)
+    target_link_libraries(vocal-debug-tests PRIVATE vocal_core Qt6::Test)
+    add_test(NAME native-debug COMMAND vocal-debug-tests)
     qt_add_executable(vocal-capture-tests tests/CaptureTests.cpp)
     target_link_libraries(vocal-capture-tests PRIVATE vocal_core Qt6::Test)
     add_test(NAME native-capture COMMAND vocal-capture-tests)

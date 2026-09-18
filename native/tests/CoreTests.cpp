@@ -24,6 +24,22 @@ class FakePlatform : public Platform {
 class CoreTests : public QObject {
     Q_OBJECT
   private slots:
+    void migratesAiOffWithoutEnablingCloudRequests() {
+        QTemporaryDir dir;
+        QFile file(dir.filePath("settings.json"));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write(QJsonDocument(QJsonObject{{"llmEnabled", true}, {"consolidationMode", "off"},
+                                            {"llmModel", "saved-model"}}).toJson());
+        file.close();
+        Settings settings(dir.path());
+        QVERIFY(!settings.values()["llmEnabled"].toBool());
+        QCOMPARE(settings.values()["consolidationMode"], "onFinish");
+        QCOMPARE(settings.values()["llmModel"], "saved-model");
+        QVERIFY(settings.set("llmEnabled", true));
+        Settings restored(dir.path());
+        QVERIFY(restored.values()["llmEnabled"].toBool());
+        QCOMPARE(restored.values()["consolidationMode"], "onFinish");
+    }
     void migratesOverlayAndOutputTiming() {
         for (const auto &timing : {"segment", "live"}) {
             QTemporaryDir dir;

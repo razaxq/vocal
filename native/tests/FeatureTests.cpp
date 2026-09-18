@@ -501,6 +501,7 @@ class FeatureTests : public QObject {
         server.body = R"({"choices":[{"message":{"content":"今天天气很好。"}}]})";
         LlmService service;
         QSignalSpy done(&service, &LlmService::completed);
+        QSignalSpy diagnostic(&service, &LlmService::diagnostic);
         QJsonObject config{{"llmEnabled", true}, {"llmBaseUrl", server.url()}, {"llmApiKey", "local-test-token"},
                            {"llmModel", "test"}, {"llmTimeoutMs", 1000},       {"consolidatePrompt", "整理文字"}};
         service.consolidate("今天的天气很好。", config, 7);
@@ -509,6 +510,10 @@ class FeatureTests : public QObject {
         QCOMPARE(done[0][2].toString(), QString("今天天气很好。"));
         QVERIFY(server.request.contains("POST /chat/completions"));
         QVERIFY(server.request.contains("Bearer local-test-token"));
+        QCOMPARE(diagnostic.size(), 2);
+        QCOMPARE(diagnostic[1][1].toJsonObject()["raw"].toString(), QString("今天天气很好。"));
+        for (const auto &event : diagnostic)
+            QVERIFY(!QJsonDocument(event[1].toJsonObject()).toJson().contains("local-test-token"));
     }
     void archiveDownloadAndDelete() {
         QTemporaryDir temp;

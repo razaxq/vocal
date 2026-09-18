@@ -9,6 +9,7 @@
 Settings::Settings(QString directory) : m_directory(std::move(directory)) {
     m_values = {
         {"serviceEnabled", true},
+        {"debugRecording", false},
         {"modelId", "paraformer-yue-offline"},
         {"deviceId", ""},
         {"keyboardEnabled", true},
@@ -76,6 +77,12 @@ Settings::Settings(QString directory) : m_directory(std::move(directory)) {
     for (auto it = m_values.begin(); it != m_values.end(); ++it) {
         if (stored.value(it.key()).type() == it.value().type())
             it.value() = stored.value(it.key());
+    }
+    // AI editing now has one enable switch. Preserve effective disabled state
+    // when migrating the old second Off option, without losing service details.
+    if (m_values["consolidationMode"] == "off") {
+        m_values["llmEnabled"] = false;
+        m_values["consolidationMode"] = "onFinish";
     }
     // Preserve existing preview behavior when migrating the two legacy timings.
     if (stored["injectMode"] == "segment" || stored["injectMode"] == "live")

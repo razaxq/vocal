@@ -155,7 +155,9 @@ class Recognizer {
         return text;
     }
     int punctuations() const { return punctuationCalls; }
+    QJsonArray decodeTrace;
     QString decode(const QVector<float> &samples, int rate, const QJsonObject &request = {}) {
+        decodeTrace = {};
         const bool addPunctuation = request["addPunctuation"].toBool(true);
         if (!recognizer)
             return addPunctuation ? punctuate(request["streamText"].toString()) : request["streamText"].toString();
@@ -186,6 +188,8 @@ class Recognizer {
             if (result)
                 SherpaOnnxDestroyOfflineRecognizerResult(result);
             SherpaOnnxDestroyOfflineStream(stream);
+            if (request["debugTrace"].toBool())
+                decodeTrace.append(QJsonObject{{"text", text}, {"hotwords", QJsonArray::fromStringList(all)}});
             return text;
         };
         const bool useDictionary = hotwordSupport && request["dictionaryEnabled"].toBool(true) && dictionary.size();
@@ -241,11 +245,12 @@ int runSpeechWorker(const QStringList &args) {
                 continue;
             }
             if (request["type"] == "punctuate") {
+                timer.restart();
                 const int before = recognizer.punctuations();
                 const auto text = recognizer.punctuate(request["text"].toString());
                 send({{"type", "result"},
                       {"id", request["id"]},
-                      {"text", text}, {"punctuationCalls", recognizer.punctuations() - before}});
+                      {"text", text}, {"elapsedMs", timer.elapsed()}, {"punctuationCalls", recognizer.punctuations() - before}});
                 continue;
             }
             const auto path = request["path"].toString();
@@ -262,6 +267,7 @@ int runSpeechWorker(const QStringList &args) {
             const int before = recognizer.punctuations();
             const auto text = recognizer.decode(samples, rate, request);
             send({{"type", "result"}, {"id", request["id"]}, {"text", text}, {"elapsedMs", timer.elapsed()},
+                  {"decodeTrace", recognizer.decodeTrace},
                   {"punctuationCalls", recognizer.punctuations() - before}});
         }
         return 0;

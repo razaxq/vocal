@@ -16,7 +16,7 @@ ApplicationWindow {
     flags: Qt.Window | Qt.FramelessWindowHint
     font.family: "Microsoft YaHei UI"
     font.pixelSize: 13
-    property int page: 0
+    property int page: 5
     property bool closeToTray: false
     property Popup activeSelectPopup: null
     property ComboBox activeSelect: null
@@ -46,7 +46,9 @@ ApplicationWindow {
     property color accentSoft: dark ? "#24331b" : "#f0f9eb"
     property color accentRing: dark ? "#4a7a30" : "#b3e19d"
     property color danger: dark ? "#f78989" : "#f56c6c"
-    property var titles: [tr("触发方式", "Triggers"), tr("识别", "Recognition"), tr("口语清理", "Speech cleanup"), tr("AI 整理", "AI editing"), tr("文字输入", "Text input"), tr("通用", "General"), tr("外观", "Appearance"), tr("历史", "History"), tr("关于", "About")]
+    property var titles: [tr("触发方式", "Triggers"), tr("语音识别", "Recognition"), tr("文字处理", "Text processing"), tr("AI 整理", "AI editing"), tr("文字输入", "Text input"), tr("通用", "General"), tr("外观", "Appearance"), tr("历史", "History"), tr("关于", "About")]
+    // Stable page IDs keep tray links and diagnostics independent of menu order.
+    readonly property var navigation: [5, 6, 0, 1, 2, 3, 4, 7, 8]
     color: surface
     palette.window: surface
     palette.windowText: fg
@@ -838,15 +840,15 @@ ApplicationWindow {
                     }
                 }
                 Repeater {
-                    model: root.titles
+                    model: root.navigation
                     delegate: ColumnLayout {
                         id: navRow
                         required property int index
-                        required property string modelData
+                        required property int modelData
                         Layout.fillWidth: true
                         spacing: 0
                         Rectangle {
-                            visible: navRow.index === 5
+                            visible: navRow.index === 2 || navRow.index === 7
                             implicitHeight: 1
                             Layout.fillWidth: true
                             color: root.line
@@ -857,20 +859,20 @@ ApplicationWindow {
                             id: nav
                             Layout.fillWidth: true
                             implicitHeight: 34
-                            text: navRow.modelData
-                            onClicked: root.page = navRow.index
+                            text: root.titles[navRow.modelData]
+                            onClicked: root.page = navRow.modelData
                             contentItem: Row {
                                 spacing: 8
                                 leftPadding: 12
                                 Text {
                                     font.family: root.font.family
                                     text: nav.text
-                                    color: root.page === navRow.index ? root.fg : root.muted
+                                    color: root.page === navRow.modelData ? root.fg : root.muted
                                     font.pixelSize: 14
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
                                 Rectangle {
-                                    visible: navRow.index === 8 && Boolean(root.controller.update.available)
+                                    visible: navRow.modelData === 8 && Boolean(root.controller.update.available)
                                     width: 6
                                     height: 6
                                     radius: 3
@@ -880,8 +882,8 @@ ApplicationWindow {
                             }
                             background: Rectangle {
                                 radius: 8
-                                color: root.page === navRow.index ? root.surface : nav.hovered ? root.hover : "transparent"
-                                border.width: root.page === navRow.index ? 1 : 0
+                                color: root.page === navRow.modelData ? root.surface : nav.hovered ? root.hover : "transparent"
+                                border.width: root.page === navRow.modelData ? 1 : 0
                                 border.color: root.line
                             }
                         }
@@ -1064,7 +1066,7 @@ ApplicationWindow {
         }, (_, i) => "F" + (i + 1))), [t("右 Ctrl（推荐）", "Right Ctrl (recommended)"), "Right Alt", "Right Shift", "Right Win", "Left Ctrl", "Left Alt", "Caps Lock"].concat(Array.from({
             length: 24
         }, (_, i) => "F" + (i + 1))))));
-        keyboard.push(f("keyboardInFullscreen", t("在全屏应用中使用", "Allow in full screen"), "bool"), f("minHoldMs", t("最短录音时长", "Minimum recording"), "number", t("短于此时长不识别", "Shorter recordings are ignored"), [], "ms"));
+        keyboard.push(f("keyboardInFullscreen", t("在全屏应用中使用", "Allow in full screen"), "bool"));
         if (cfg.keyboardMode === "doubleTap")
             keyboard.push(f("doubleTapWindowMs", t("双击间隔", "Double tap interval"), "number", "", [], "ms"));
         return {
@@ -1080,34 +1082,59 @@ ApplicationWindow {
             ],
             2: [
                 {
+                    title: t("文字纠错", "Text correction"),
+                    hint: t("在本地修正识别错字", "Corrects transcription errors locally"),
+                    modelRole: "correctionModel",
+                    fields: []
+                },
+                {
                     title: t("口语清理", "Speech cleanup"),
                     hint: t("在本地删除口头禅和重复词", "Removes fillers and repetitions locally"),
-                    fields: [f("cleanupLevel", t("清理程度", "Level"), "select", "", o(["off", "light", "standard"], [t("关闭", "Off"), t("轻度", "Light"), t("标准", "Standard")])), f("protectHotwords", t("保护个人热词", "Protect hotwords"), "bool")]
+                    fields: [f("cleanupLevel", t("清理程度", "Level"), "select", "", o(["off", "light", "standard"], [t("关闭", "Off"), t("轻度", "Light"), t("标准", "Standard")]))].concat(cfg.cleanupLevel !== "off" ? [f("protectHotwords", t("保护个人热词", "Protect hotwords"), "bool")] : [])
                 },
                 {
                     title: t("额外口头禅", "Extra fillers"),
+                    visible: cfg.cleanupLevel !== "off",
                     words: "extraFillers",
+                    cleanupPreview: true,
+                    fields: []
+                },
+                {
+                    title: t("标点", "Punctuation"),
+                    hint: t("为识别文字补充标点", "Adds punctuation to the transcript"),
+                    modelRole: "punct",
                     fields: []
                 }
             ],
             3: [
                 {
-                    title: t("整理方式", "Editing mode"),
+                    title: t("AI 整理", "AI editing"),
                     hint: t("启用后仅将识别文字发送给所选服务", "When enabled, sends only the transcript to your service"),
-                    fields: [f("consolidationMode", t("AI 整理", "AI editing"), "select", "", o(["off", "onFinish", "rolling"], [t("关闭", "Off"), t("结束录音后", "After recording"), t("边说边整理", "While speaking")])), f("minChars", t("最少字数", "Minimum length"), "number", "", [], t("字", "chars")), f("rollingChars", t("每次新增字数", "Edit every"), "number", "", [], t("字", "chars")), f("maxReplaceChars", t("自动替换上限", "Replacement limit"), "number", t("超出时仅保存结果，不替换已输入文字", "Longer results are saved without replacing inserted text"), [], t("字", "chars"))]
+                    fields: [f("llmEnabled", t("启用 AI 整理", "Enable AI editing"), "bool")]
                 },
                 {
                     title: t("服务", "Service"),
-                    fields: [f("llmEnabled", t("启用服务", "Enable service"), "bool"), f("llmBaseUrl", "API URL", "text"), f("llmApiKey", "API Key", "text"), f("llmModel", t("模型", "Model"), "text"), f("llmTimeoutMs", t("超时", "Timeout"), "number", "", [], "s", 1000)]
+                    visible: cfg.llmEnabled,
+                    fields: [f("llmBaseUrl", t("服务地址", "API URL"), "text"), f("llmApiKey", t("API 密钥", "API key"), "text"), f("llmModel", t("模型", "Model"), "text"), f("llmTimeoutMs", t("超时", "Timeout"), "number", "", [], "ms")]
+                },
+                {
+                    title: t("整理时机", "When to edit"),
+                    visible: cfg.llmEnabled,
+                    fields: [f("consolidationMode", t("整理时机", "Editing timing"), "select", "", o(["onFinish", "rolling"], [t("结束录音后", "After recording"), t("边说边整理", "While speaking")])), f("minChars", t("结束时最少字数", "Minimum final length"), "number", "", [], t("字", "chars"))].concat(cfg.consolidationMode === "rolling" ? [f("rollingChars", t("每次新增字数", "Edit every"), "number", "", [], t("字", "chars"))] : [])
                 }
             ],
             4: [
                 {
+                    title: t("输出时机", "Output timing"),
+                    fields: [f("injectMode", t("何时输入", "When to type"), "select", t("预览输出时请勿移动光标或修改文字", "Keep the cursor and text unchanged during preview output"), o(["final", "preview"], [t("识别完成后输出", "After recognition"), t("预览输出", "Preview output")]))].concat(cfg.injectMode === "preview" ? [f("maxReplaceChars", t("自动替换上限", "Replacement limit"), "number", t("限制一次改写的已输入字数", "Maximum inserted characters replaced at once"), [], t("字", "chars"))] : [])
+                },
+                {
                     title: t("输入方式", "Input method"),
-                    fields: [f("injectionStrategy", t("文字输入", "Text input"), "select", "", o(["auto", "unicode", "clipboard"], [t("自动（推荐）", "Automatic (recommended)"), t("逐字输入", "Unicode typing"), t("剪贴板粘贴", "Clipboard paste")])), f("clipboardThreshold", t("长文本使用粘贴", "Paste longer text"), "number", "", [], t("字", "chars")), f("restoreClipboard", t("恢复剪贴板", "Restore clipboard"), "bool"), f("injectMode", t("输出时机", "Output timing"), "select", t("预览输出时请勿移动光标或修改文字", "Keep the cursor and text unchanged during preview output"), o(["final", "preview"], [t("识别完成后输出", "After recognition"), t("预览输出", "Preview output")]))]
+                    fields: [f("injectionStrategy", t("输入方式", "Input method"), "select", "", o(["auto", "unicode", "clipboard"], [t("自动（推荐）", "Automatic (recommended)"), t("逐字输入", "Unicode typing"), t("剪贴板粘贴", "Clipboard paste")]))].concat(cfg.injectionStrategy === "auto" ? [f("clipboardThreshold", t("粘贴字数门槛", "Paste above"), "number", "", [], t("字", "chars"))] : []).concat(cfg.injectionStrategy !== "unicode" ? [f("restoreClipboard", t("恢复剪贴板", "Restore clipboard"), "bool")] : [])
                 },
                 {
                     title: t("始终使用粘贴的应用", "Apps that always use paste"),
+                    visible: cfg.injectionStrategy === "auto",
                     hint: t("填写进程名，例如 WINWORD.EXE", "Process names, for example WINWORD.EXE"),
                     words: "clipboardOnlyApps",
                     fields: []
@@ -1115,17 +1142,27 @@ ApplicationWindow {
             ],
             5: [
                 {
+                    title: t("语言", "Language"),
+                    fields: [f("language", t("界面语言", "Interface language"), "select", "", o(["zh", "en"], ["简体中文", "English"]))]
+                },
+                {
                     title: t("启动", "Startup"),
                     fields: [f("launchAtLogin", t("开机自启", "Launch at login"), "bool", t("登录 Windows 后在后台运行", "Run in the background after signing in"))]
                 },
                 {
                     title: t("更新", "Updates"),
                     hint: t("启动时会自动检查更新；关闭自动更新后仅提示。", "Checks at startup. With automatic updates off, you will be notified."),
-                    fields: [f("autoUpdate", t("自动更新", "Automatic updates"), "bool", t("发现新版后自动下载安装并重启", "Download and install new versions automatically"))]
+                    fields: [f("autoUpdate", t("自动更新", "Automatic updates"), "bool", t("自动安装新版并重启", "Download and install new versions automatically"))]
                 },
                 {
-                    title: t("语言", "Language"),
-                    fields: [f("language", t("界面语言", "Interface language"), "select", "", o(["zh", "en"], ["简体中文", "English"]))]
+                    title: t("资源占用", "Resource usage"),
+                    modelTools: true,
+                    fields: [f("idleUnloadMin", t("空闲释放内存", "Unload when idle"), "number", t("0 表示不释放；下次识别需重新加载", "0 keeps models loaded; otherwise reloads on next use"), [], "min")]
+                },
+                {
+                    title: t("调试", "Debugging"),
+                    debug: true,
+                    fields: [f("debugRecording", t("保存调试记录", "Save debug recordings"), "bool", t("保存每次录音和处理结果，仅存本机。", "Save each recording and processing results locally."))]
                 }
             ],
             6: [
@@ -1154,6 +1191,7 @@ ApplicationWindow {
                     heading: modelData.title
                     hint: modelData.hint || ""
                     first: index === 0
+                    visible: group.modelData.visible !== false
                     RowLayout {
                         visible: Boolean(group.modelData.swatches)
                         Layout.fillWidth: true
@@ -1239,6 +1277,40 @@ ApplicationWindow {
                             field: modelData
                         }
                     }
+                    Models {
+                        visible: Boolean(group.modelData.modelRole)
+                        entries: group.modelData.modelRole === "correctionModel" ? root.controller.correctionModels : group.modelData.modelRole === "punct" ? root.controller.punctuationModels : null
+                        role: group.modelData.modelRole || ""
+                        allowNone: role !== "punct"
+                    }
+                    RowLayout {
+                        visible: Boolean(group.modelData.modelTools)
+                        Action {
+                            text: root.tr("重新加载模型", "Reload models")
+                            enabled: root.controller.serviceEnabled && !root.controller.sessionActive
+                            onClicked: root.controller.reloadModel()
+                        }
+                        Action {
+                            text: root.tr("打开模型目录", "Open model folder")
+                            onClicked: root.controller.openModelDirectory()
+                        }
+                    }
+                    ColumnLayout {
+                        visible: Boolean(group.modelData.debug)
+                        Layout.fillWidth: true
+                        Note {
+                            text: root.tr("会占用磁盘空间；关闭后已有记录保留。", "Uses disk space. Turning this off keeps existing recordings.")
+                        }
+                        Action {
+                            text: root.tr("打开记录文件夹", "Open recordings folder")
+                            onClicked: root.controller.openDebugDirectory()
+                        }
+                        Note {
+                            visible: root.controller.debugError.length > 0
+                            text: root.controller.debugError
+                            color: root.danger
+                        }
+                    }
                     Loader {
                         active: Boolean(group.modelData.words)
                         Layout.fillWidth: true
@@ -1248,26 +1320,27 @@ ApplicationWindow {
                             }
                         }
                     }
-                }
-            }
-            Section {
-                visible: root.page === 2
-                heading: root.tr("效果预览", "Preview")
-                Input {
-                    id: preview
-                    Layout.fillWidth: true
-                    text: root.tr("嗯，那个，今天天气很好。", "Um, well, the weather is nice today.")
-                }
-                Note {
-                    text: {
-                        let cfg = root.controller.settings;
-                        return root.controller.cleanupPreview(preview.text);
+                    ColumnLayout {
+                        visible: Boolean(group.modelData.cleanupPreview)
+                        Layout.fillWidth: true
+                        Note { text: root.tr("清理效果预览", "Cleanup preview") }
+                        Input {
+                            id: preview
+                            Layout.fillWidth: true
+                            text: root.tr("嗯，那个，今天天气很好。", "Um, well, the weather is nice today.")
+                        }
+                        Note {
+                            text: {
+                                let cfg = root.controller.settings;
+                                return root.controller.cleanupPreview(preview.text);
+                            }
+                            color: root.fg
+                        }
                     }
-                    color: root.fg
                 }
             }
             Section {
-                visible: root.page === 3
+                visible: root.page === 3 && root.controller.settings.llmEnabled
                 heading: root.tr("整理要求", "Editing instructions")
                 BoundedScroll {
                     Layout.fillWidth: true
@@ -1349,8 +1422,11 @@ ApplicationWindow {
                 }
             }
             Section {
-                heading: ""
+                heading: root.tr("触发保护", "Trigger protection")
                 visible: root.controller.settings.keyboardEnabled || root.controller.settings.mouseEnabled
+                FormRow {
+                    field: root.field("minHoldMs", root.tr("最短录音时长", "Minimum recording"), "number", root.tr("短于此时长不识别，适用于键盘和鼠标", "Shorter recordings are ignored for both triggers"), [], "ms")
+                }
                 FormRow {
                     field: root.field("debounceMs", root.tr("重复触发间隔", "Repeat interval"), "number", root.tr("间隔过短时忽略重复触发", "Ignore triggers within this interval"), [], "ms")
                 }
@@ -1369,9 +1445,6 @@ ApplicationWindow {
                 first: true
                 heading: root.tr("麦克风", "Microphone")
                 FormRow {
-                    field: root.field("microphoneWarmup", root.tr("麦克风预热", "Keep microphone ready"), "bool", root.tr("未触发时不保存音频", "Idle audio is discarded"))
-                }
-                FormRow {
                     field: root.field("deviceId", root.tr("输入设备", "Input device"), "select", "", root.controller.devices.map(d => ({
                                 label: d.id ? d.name : root.tr("系统默认", "System default"),
                                 value: d.id
@@ -1389,6 +1462,9 @@ ApplicationWindow {
                         implicitHeight: 6
                         value: root.controller.testLevel
                     }
+                }
+                FormRow {
+                    field: root.field("microphoneWarmup", root.tr("麦克风预热", "Keep microphone ready"), "bool", root.tr("未触发时不保存音频", "Idle audio is discarded"))
                 }
                 RowLayout {
                     Action {
@@ -1415,32 +1491,7 @@ ApplicationWindow {
                 }
                 FormRow {
                     visible: !root.controller.settings.automaticSegmentation
-                    field: root.field("endpointSilenceMs", root.tr("分段停顿", "Pause between segments"), "number", "", [], "s", 1000)
-                }
-            }
-            Section {
-                heading: root.tr("内存", "Memory")
-                FormRow {
-                    field: root.field("idleUnloadMin", root.tr("空闲释放内存", "Unload when idle"), "number", root.tr("0 表示不释放；释放后首次识别稍慢", "0 keeps models loaded; the next start takes longer after unloading"), [], "min")
-                }
-                RowLayout {
-                    Action {
-                        text: root.tr("重新加载模型", "Reload models")
-                        onClicked: root.controller.reloadModel()
-                    }
-                    Action {
-                        text: root.tr("打开模型目录", "Open model folder")
-                        onClicked: root.controller.openModelDirectory()
-                    }
-                }
-            }
-            Section {
-                heading: root.tr("流式模型", "Streaming model")
-                hint: root.tr("可选，提供更即时的文字预览", "Optional, for more immediate live previews")
-                Models {
-                    entries: root.controller.streamingModels
-                    role: "streamingModel"
-                    allowNone: root.controller.settings.modelId !== "none"
+                    field: root.field("endpointSilenceMs", root.tr("分段停顿", "Pause between segments"), "number", "", [], "ms")
                 }
             }
             Section {
@@ -1453,24 +1504,17 @@ ApplicationWindow {
                 }
             }
             Section {
-                heading: root.tr("文字纠错", "Text correction")
-                hint: root.tr("在本地修正识别错字", "Corrects transcription errors locally")
+                heading: root.tr("流式模型", "Streaming model")
+                hint: root.tr("可选，提供更即时的文字预览", "Optional, for more immediate live previews")
                 Models {
-                    entries: root.controller.correctionModels
-                    role: "correctionModel"
-                }
-            }
-            Section {
-                heading: root.tr("标点", "Punctuation")
-                Models {
-                    entries: root.controller.punctuationModels
-                    role: "punct"
-                    allowNone: false
+                    entries: root.controller.streamingModels
+                    role: "streamingModel"
+                    allowNone: root.controller.settings.modelId !== "none"
                 }
             }
             Section {
                 heading: root.tr("个人热词", "Personal hotwords")
-                hint: root.tr("人名、术语等，仅用于最终输出", "Names and terms, used for the final transcript")
+                hint: root.tr("人名、术语等，辅助定稿和纠错", "Names and terms for recognition and correction")
                 Words {
                     settingKey: "hotwords"
                 }

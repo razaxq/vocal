@@ -1,6 +1,6 @@
 {
   "name": "vocal",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Vocal — C++ / Qt Quick 本地语音输入",
   "private": true,
   "author": {

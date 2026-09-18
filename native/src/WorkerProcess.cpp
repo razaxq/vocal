@@ -68,7 +68,9 @@ void WorkerProcess::stop() {
 bool WorkerProcess::send(const QJsonObject &message) {
     if (!m_ready || m_process.bytesToWrite() > 16 * 1024 * 1024)
         return false;
-    return m_process.write(QJsonDocument(message).toJson(QJsonDocument::Compact) + '\n') >= 0;
+    const bool sent = m_process.write(QJsonDocument(message).toJson(QJsonDocument::Compact) + '\n') >= 0;
+    if (sent) emit requestSent(message);
+    return sent;
 }
 void WorkerProcess::error(const QString &message) {
     m_startup.stop();

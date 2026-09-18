@@ -14,6 +14,7 @@ class LlmService : public QObject {
     bool busy() const { return !m_reply.isNull(); }
     static QString guard(const QString &input, QString output);
   signals:
+    void diagnostic(int generation, const QJsonObject &event);
     void completed(int generation, const QString &source, const QString &text);
 
   private:

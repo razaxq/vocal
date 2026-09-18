@@ -8,6 +8,8 @@
 #include "ModelManager.h"
 #include "ModelRows.h"
 #include "Settings.h"
+#include "SessionDebug.h"
+#include <QSet>
 #include "TextOutput.h"
 #include "TriggerController.h"
 #include "WorkerProcess.h"
@@ -45,6 +47,8 @@ class AppController : public QObject {
     Q_PROPERTY(QVariantMap statistics READ statistics NOTIFY historyChanged)
     Q_PROPERTY(QVariantList changelog READ changelog CONSTANT)
     Q_PROPERTY(QString modelDirectory READ modelDirectory CONSTANT)
+    Q_PROPERTY(QString debugDirectory READ debugDirectory CONSTANT)
+    Q_PROPERTY(QString debugError READ debugError NOTIFY debugChanged)
     Q_PROPERTY(QString version READ version CONSTANT)
     Q_PROPERTY(bool inputSupported READ inputSupported CONSTANT)
     Q_PROPERTY(QPoint overlayPosition READ overlayPosition NOTIFY changed)
@@ -86,6 +90,8 @@ class AppController : public QObject {
     QVariantMap statistics() const;
     QVariantList changelog() const;
     QString modelDirectory() const { return m_catalog.root(); }
+    QString debugDirectory() const { return m_debug.root(); }
+    QString debugError() const { return m_debugError; }
     QString version() const;
     bool inputSupported() const { return m_platform->inputSupported(); }
     QPoint overlayPosition() const { return m_overlayPosition; }
@@ -107,6 +113,7 @@ class AppController : public QObject {
     Q_INVOKABLE void cancelDownload(const QString &id = {});
     Q_INVOKABLE void setServiceEnabled(bool enabled);
     Q_INVOKABLE void openModelDirectory();
+    Q_INVOKABLE void openDebugDirectory();
     Q_INVOKABLE void clearHistory();
     Q_INVOKABLE void deleteHistory(int index);
     Q_INVOKABLE QString cleanupPreview(const QString &text) const;
@@ -132,6 +139,7 @@ class AppController : public QObject {
     void historyChanged();
     void maintenanceChanged();
     void resourcesChanged();
+    void debugChanged();
 
   private:
     struct Job {
@@ -167,7 +175,14 @@ class AppController : public QObject {
     void saveHistory();
     void writeHistory();
     void sampleResources();
+    void beginDebug(bool fixture = false);
+    void debugPreview();
     Settings m_settings;
+    SessionDebug m_debug;
+    QJsonObject m_debugPreview;
+    QMap<QString, QSet<int>> m_debugRequests;
+    QString m_debugError;
+    qint64 m_segmentOffset = 0;
     ModelCatalog m_catalog;
     ModelManager m_manager;
     ModelRows m_offlineRows, m_streamRows, m_correctionRows, m_punctuationRows;

@@ -15,6 +15,7 @@
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QScreen>
+#include <QSysInfo>
 #include <QThread>
 #include <QUrl>
 #include <cmath>
@@ -40,18 +41,51 @@ QString AppController::result() const { return joinSpeechFragments(m_result, liv
 
 AppController::AppController(QString dataDirectory, QString modelDirectory, bool hooks, bool maintenance,
                              QObject *parent)
-    : QObject(parent), m_settings(std::move(dataDirectory)), m_catalog(modelDirectory), m_manager(modelDirectory),
+    : QObject(parent), m_settings(std::move(dataDirectory)), m_debug(QDir(m_settings.directory()).filePath("debug")),
+      m_catalog(modelDirectory), m_manager(modelDirectory),
       m_platform(createPlatform()), m_triggers(m_platform.get()), m_output(m_platform.get()),
       m_desktop(m_settings.directory()) {
     m_allowMicWarmup = maintenance; // Diagnostics never open an unrequested live microphone.
+    connect(&m_debug, &SessionDebug::failed, this, [this](const QString &message) {
+        m_debugError = message;
+        emit debugChanged();
+    });
+    connect(this, &AppController::changed, this, &AppController::debugPreview);
+    // Connect before result handlers: a result can synchronously end a session.
+    for (const auto &[worker, role] : QList<QPair<WorkerProcess *, QString>>{
+             {&m_offline, "offline"}, {&m_stream, "streaming"}, {&m_corrector, "correction"}}) {
+        connect(worker, &WorkerProcess::requestSent, this, [this, role](QJsonObject message) {
+            if (!m_debug.active()) return;
+            const int id = message["id"].toInt();
+            if (message.contains("id")) m_debugRequests[role].insert(id);
+            if (message["type"] == "audio") {
+                message["sampleCount"] = QByteArray::fromBase64(message["samples"].toString().toLatin1()).size() / 4;
+                message.remove("samples"); // PCM is already saved losslessly in audio.wav.
+            }
+            if (message.contains("path")) message.remove("path");
+            m_debug.record("worker.request", {{"worker", role}, {"message", message}});
+        });
+        connect(worker, &WorkerProcess::event, this, [this, role](const QJsonObject &message) {
+            if (message.contains("id") && !m_debugRequests[role].contains(message["id"].toInt())) return;
+            m_debug.record("worker.response", {{"worker", role}, {"message", message}});
+        });
+        connect(worker, &WorkerProcess::failed, this, [this, role](const QString &error) {
+            m_debug.record("worker.error", {{"worker", role}, {"error", error}});
+        });
+        connect(worker, &WorkerProcess::stateChanged, this, [this, worker, role] {
+            m_debug.record("worker.state", {{"worker", role}, {"state", worker->state()}});
+        });
+    }
     connect(this, &AppController::modelsChanged, this, &AppController::refreshModelRows);
     refreshModelRows();
     configureTriggers();
     connect(&m_output, &TextOutput::failed, this, [this](const QString &error) {
+        m_debug.record("output.error", {{"error", error}, {"inserted", m_output.inserted()}});
         m_error = error;
         emit changed();
     });
     connect(&m_output, &TextOutput::idle, this, [this] {
+        m_debug.record("output.idle", {{"inserted", m_output.inserted()}});
         if (m_waitingOutput) endSession();
     });
     m_uptime.start();
@@ -97,6 +131,8 @@ AppController::AppController(QString dataDirectory, QString modelDirectory, bool
     });
     m_watchdog.setSingleShot(true);
     connect(&m_watchdog, &QTimer::timeout, this, [this] {
+        m_debug.record("pipeline.timeout", {{"asrJob", m_asrJob}, {"correctionJob", m_correctionJob},
+            {"contextJob", m_finalCorrectionJob}, {"punctuationJob", m_finalPunctuationJob}});
         if (m_finalPunctuationJob) {
             m_finalPunctuationJob = 0;
             m_finalPunctuationDone = true;
@@ -202,6 +238,8 @@ AppController::AppController(QString dataDirectory, QString modelDirectory, bool
             m_watchdog.stop();
             // A newer ASR/CSC segment may have arrived while this was running.
             // Never publish a stale preview or feed its punctuation back in.
+            m_debug.record("punctuation.result", {{"id", id}, {"source", m_punctuationSource},
+                {"text", event["text"]}, {"applied", m_punctuationSource == m_unpunctuated}});
             if (m_punctuationSource == m_unpunctuated) {
                 const auto text = event["text"].toString();
                 m_result = text.isEmpty() ? m_unpunctuated : text;
@@ -235,6 +273,7 @@ AppController::AppController(QString dataDirectory, QString modelDirectory, bool
             m_finalCorrectionDone = true;
             m_watchdog.stop();
             const auto corrected = cleanupSpeech(event["text"].toString(), m_settings.values());
+            m_debug.record("cleanup.context", {{"source", event["text"]}, {"text", corrected}});
             if (!corrected.isEmpty())
                 m_unpunctuated = corrected;
             emit changed();
@@ -245,6 +284,7 @@ AppController::AppController(QString dataDirectory, QString modelDirectory, bool
             return;
         auto &job = m_jobs[id];
         job.text = cleanupSpeech(event["text"].toString(), m_settings.values());
+        m_debug.record("cleanup.segment", {{"id", id}, {"source", event["text"]}, {"text", job.text}});
         job.stage = "done";
         m_correctionJob = 0;
         drainJobs();
@@ -306,6 +346,7 @@ AppController::AppController(QString dataDirectory, QString modelDirectory, bool
     connect(&m_llm, &LlmService::completed, this, [this](int generation, const QString &source, const QString &text) {
         if (generation != m_generation || !m_session)
             return;
+        m_debug.record("llm.applied", {{"source", source}, {"text", text}, {"applied", m_result.startsWith(source)}});
         if (m_result.startsWith(source)) {
             m_result = text + m_result.mid(source.size());
             if (!m_finishing) insertText(m_result);
@@ -315,6 +356,9 @@ AppController::AppController(QString dataDirectory, QString modelDirectory, bool
             finishOutput();
         } else if (!m_recording && m_jobs.isEmpty())
             completeSession();
+    });
+    connect(&m_llm, &LlmService::diagnostic, this, [this](int generation, const QJsonObject &event) {
+        if (generation == m_generation) m_debug.record("llm.event", event);
     });
     QFile file(QDir(m_settings.directory()).filePath("history.jsonl"));
     if (file.open(QIODevice::ReadOnly))
@@ -352,6 +396,7 @@ AppController::AppController(QString dataDirectory, QString modelDirectory, bool
     });
 }
 AppController::~AppController() {
+    m_debug.finish("interrupted", {{"raw", m_raw}, {"text", result()}, {"error", m_error}});
     m_recording = false;
     m_session = false;
     m_loadingRoles = true;
@@ -601,12 +646,56 @@ void AppController::configureCapture() {
                      QByteArray::fromBase64(m_settings.values()["deviceId"].toString().toLatin1()));
 }
 void AppController::resetTranscript() {
+    m_segmentOffset = 0;
     m_decodePasses = 0;
     m_finalPunctuationJob = m_punctuationPasses = 0;
     m_finalPunctuationDone = false;
     m_unpunctuated.clear();
     m_punctuationSource.clear();
     m_punctuatedSource.clear();
+}
+void AppController::beginDebug(bool fixture) {
+    if (!m_settings.values()["debugRecording"].toBool()) return;
+    m_debugError.clear();
+    m_debugPreview = {};
+    m_debugRequests.clear();
+    QJsonObject modelInfo;
+    for (const auto &key : {"modelId", "streamingModel", "correctionModel", "punct"}) {
+        const auto id = QString(key) == "punct" ? QString("ct-transformer") : m_settings.values()[key].toString();
+        auto model = m_catalog.find(id);
+        QJsonObject files;
+        const auto names = model["files"].toObject();
+        for (auto it = names.begin(); it != names.end(); ++it) {
+            const QFileInfo file(m_catalog.file(model, it.key()));
+            files[it.key()] = QJsonObject{{"name", it.value()}, {"size", file.size()},
+                {"modifiedAt", file.lastModified().toUTC().toString(Qt::ISODateWithMs)}};
+        }
+        model["id"] = id;
+        model["localFiles"] = files;
+        modelInfo[key] = model;
+    }
+    QFile build(":/vocal/native-build.json");
+    const auto buildInfo = build.open(QIODevice::ReadOnly) ? QJsonDocument::fromJson(build.readAll()).object() : QJsonObject{};
+    m_debug.begin({{"version", version()}, {"build", buildInfo}, {"qtVersion", qVersion()},
+        {"platform", QSysInfo::prettyProductName()}, {"architecture", QSysInfo::currentCpuArchitecture()},
+        {"settings", m_settings.values()}, {"models", modelInfo}, {"fixture", fixture},
+        {"injectionEnabled", m_inject}, {"modelDirectory", m_catalog.root()},
+        {"workerStates", QJsonObject{{"offline", m_offline.state()}, {"streaming", m_stream.state()},
+                                    {"correction", m_corrector.state()}}}}, m_desktop.dictionaryPath());
+    emit debugChanged();
+}
+void AppController::debugPreview() {
+    if (!m_debug.active()) return;
+    const QJsonObject snapshot{{"text", result()}, {"committed", m_result}, {"live", liveText()},
+        {"unpunctuated", m_unpunctuated}, {"state", m_state}, {"recording", m_recording},
+        {"captureReady", m_captureReady}, {"overlayMode", m_settings.values()["overlayTextMode"]}};
+    if (snapshot == m_debugPreview) return;
+    m_debugPreview = snapshot;
+    m_debug.record("preview", snapshot);
+}
+void AppController::openDebugDirectory() {
+    QDir().mkpath(m_debug.root());
+    QDesktopServices::openUrl(QUrl::fromLocalFile(m_debug.root()));
 }
 bool AppController::updateOverlayPosition() {
     const auto caret = m_settings.values()["followCaret"].toBool(true) ? m_platform->caretRect() : QRect{};
@@ -696,6 +785,7 @@ void AppController::start(bool inject) {
     m_lastRolling = 0;
     m_recordTime.start();
     m_watchdog.stop(); // Worker startup and queued inference have their own deadlines.
+    beginDebug();
     // Set up the session before opening the device: an immediately available
     // first packet must not be ignored or erased by subsequent initialization.
     updateState(); // Show preparation before a potentially slow device open.
@@ -722,13 +812,14 @@ void AppController::start(bool inject) {
 void AppController::frames(const QVector<float> &samples, int rate) {
     if (!m_recording || samples.isEmpty())
         return;
+    m_debug.audio(samples, rate);
     m_streamRate = rate;
     if (!m_captureReady) {
         m_captureReady = true;
         emit changed();
     }
     // Capture keeps draining while queued model workers process previous chunks.
-    // The segmenter owns PCM from here; do not retain a second recording buffer.
+    // The segmenter owns PCM; optional debug audio is streamed to disk separately.
     const auto config = m_settings.values();
     const auto ready = m_segmenter.append(samples, rate, config["endpointSilenceMs"].toInt(1500),
                                           config["automaticSegmentation"].toBool(true));
@@ -782,10 +873,14 @@ void AppController::feedStream() {
 void AppController::cutSegment(QVector<float> samples, int rate) {
     if (!m_session)
         return;
+    const bool voiced = hasVoice(samples, rate);
+    m_debug.record("segment.cut", {{"id", m_segment}, {"startSample", m_segmentOffset},
+        {"samples", samples.size()}, {"sampleRate", rate}, {"voiced", voiced}, {"recording", m_recording}});
+    m_segmentOffset += samples.size();
     feedStream();
     const int id = m_segment;
     const bool streamed = m_streamStarted && m_stream.send({{"type", "finish"}, {"id", id}});
-    if (hasVoice(samples, rate)) {
+    if (voiced) {
         if (m_jobs.size() >= 8) {
             fail("识别速度跟不上录音，请稍后继续");
             return;
@@ -820,6 +915,7 @@ void AppController::cutSegment(QVector<float> samples, int rate) {
 void AppController::finish() {
     if (!m_recording || m_captureStopping)
         return;
+    m_debug.record("capture.stopRequested");
     m_captureStopping = true;
     m_audio.stop();
 }
@@ -830,6 +926,7 @@ void AppController::finishCapture() {
     m_captureStopping = false;
     m_recording = false;
     m_duration = int(m_recordTime.elapsed());
+    m_debug.record("capture.stopped", {{"durationMs", m_duration}});
     if (m_duration < m_settings.values()["minHoldMs"].toInt(200)) {
         cancelRecording();
         return;
@@ -873,6 +970,7 @@ void AppController::pump() {
             if (config["modelId"] == "none" && !job.streamDone)
                 continue;
             QJsonObject request{{"type", "decode"},
+                                {"debugTrace", m_debug.active()},
                                 {"addPunctuation", false},
                                 {"id", job.id},
                                 {"path", job.path},
@@ -891,6 +989,8 @@ void AppController::pump() {
             if (config["correctionModel"] == "none" || m_corrector.state() == "error" ||
                 m_corrector.state() == "unloaded" || job.raw.isEmpty()) {
                 job.text = cleanupSpeech(job.raw, config);
+                m_debug.record("correction.skipped", {{"id", job.id}, {"state", m_corrector.state()},
+                    {"model", config["correctionModel"]}, {"source", job.raw}, {"text", job.text}});
                 job.stage = "done";
             } else if (m_corrector.ready() && m_corrector.send({{"type", "correct"},
                                                                 {"id", job.id},
@@ -912,6 +1012,7 @@ void AppController::pump() {
 void AppController::drainJobs() {
     while (!m_jobs.isEmpty() && m_jobs.first().stage == "done") {
         const auto job = m_jobs.take(m_jobs.firstKey());
+        m_debug.record("segment.committed", {{"id", job.id}, {"raw", job.raw}, {"text", job.text}});
         QFile::remove(job.path);
         if (!job.text.isEmpty()) {
             m_unpunctuated = joinSpeechFragments(m_unpunctuated, job.text);
@@ -980,6 +1081,10 @@ void AppController::endSession() {
     m_waitingOutput = false;
     m_finishing = false;
     if (!m_result.isEmpty()) saveHistory();
+    debugPreview();
+    m_debug.finish(m_result.isEmpty() ? "empty" : "completed", {{"raw", m_raw}, {"text", m_result},
+        {"inserted", m_output.inserted()}, {"injectionEnabled", m_inject}, {"error", m_error},
+        {"segments", m_segments}, {"decodePasses", m_decodePasses}, {"punctuationPasses", m_punctuationPasses}});
     m_session = false;
     updateState();
     armIdle();
@@ -998,6 +1103,7 @@ void AppController::requestPunctuation() {
         }
     }
     // If punctuation is unavailable, preserve recognition rather than stall.
+    m_debug.record("punctuation.skipped", {{"source", m_unpunctuated}, {"state", m_offline.state()}});
     m_result = m_unpunctuated;
     m_punctuatedSource = m_unpunctuated;
     insertText(result());
@@ -1007,14 +1113,18 @@ void AppController::insertText(const QString &text, bool final) {
     if (text.isEmpty() || (!final && m_settings.values()["injectMode"] != "preview"))
         return;
     emit textOutputRequested(text, final);
+    m_debug.record("output.request", {{"text", text}, {"final", final}, {"injectionEnabled", m_inject}});
     if (!m_inject) return;
     auto config = m_settings.values();
     config["triggerOwned"] = m_triggers.keyboardActive();
     QString error;
     if (!m_output.update(text, config, m_settings.values()["maxReplaceChars"].toInt(1500), &error))
         m_error = error;
+    m_debug.record("output.queued", {{"text", text}, {"inserted", m_output.inserted()},
+        {"busy", m_output.busy()}, {"error", error}});
 }
 void AppController::cancelRecording() {
+    m_debug.finish("cancelled", {{"raw", m_raw}, {"text", result()}, {"error", m_error}});
     m_waitingOutput = false;
     m_output.begin(0); // Cancel unsent previews without changing an in-flight clipboard.
     m_recording = false;
@@ -1049,6 +1159,8 @@ void AppController::cancelRecording() {
     emit changed();
 }
 void AppController::fail(const QString &message) {
+    m_debug.record("pipeline.error", {{"error", message}});
+    m_debug.finish("error", {{"raw", m_raw}, {"text", result()}, {"error", message}});
     cancelRecording();
     m_error = message;
     m_state = "error";
@@ -1093,6 +1205,7 @@ void AppController::transcribeForTest(const QString &path, int rate, int segment
     m_finalCorrectionDone = false;
     m_segment = ++m_request;
     m_streamStarted = false;
+    beginDebug(true);
     updateState();
     if (packetMs > 0) {
         const auto pcm = std::make_shared<QVector<float>>(std::move(samples));
@@ -1124,6 +1237,7 @@ void AppController::transcribeForTest(const QString &path, int rate, int segment
     }
     auto release = [this, samples = std::move(samples), rate, segments] {
         for (int i = 0; i < qBound(1, segments, 4); ++i) {
+            m_debug.audio(samples, rate);
             if (m_stream.ready()) {
                 m_streamBuffer = samples;
                 feedStream();

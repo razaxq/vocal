@@ -29,6 +29,7 @@ void LlmService::consolidate(const QString &text, const QJsonObject &settings, i
     if (busy())
         return;
     if (!settings["llmEnabled"].toBool() || settings["llmApiKey"].toString().isEmpty()) {
+        emit diagnostic(generation, {{"type", "skipped"}, {"reason", "disabled_or_missing_key"}, {"source", text}});
         emit completed(generation, text, text);
         return;
     }
@@ -38,6 +39,7 @@ void LlmService::consolidate(const QString &text, const QJsonObject &settings, i
     const QUrl url(base + "/chat/completions");
     if (url.scheme() != "https" &&
         !(url.scheme() == "http" && (url.host() == "localhost" || url.host() == "127.0.0.1"))) {
+        emit diagnostic(generation, {{"type", "skipped"}, {"reason", "invalid_endpoint"}, {"source", text}});
         emit completed(generation, text, text);
         return;
     }
@@ -48,6 +50,7 @@ void LlmService::consolidate(const QString &text, const QJsonObject &settings, i
     request.setTransferTimeout(settings["llmTimeoutMs"].toInt(8000));
     QJsonArray messages{QJsonObject{{"role", "system"}, {"content", settings["consolidatePrompt"]}},
                         QJsonObject{{"role", "user"}, {"content", text}}};
+    emit diagnostic(generation, {{"type", "request"}, {"model", settings["llmModel"]}, {"messages", messages}});
     m_reply = m_network.post(
         request, QJsonDocument(QJsonObject{{"model", settings["llmModel"]}, {"temperature", 0}, {"messages", messages}})
                      .toJson(QJsonDocument::Compact));
@@ -65,12 +68,17 @@ void LlmService::consolidate(const QString &text, const QJsonObject &settings, i
             return;
         m_reply = nullptr;
         QString result = text;
+        QString raw;
         if (reply->error() == QNetworkReply::NoError) {
             const auto data = QJsonDocument::fromJson(reply->readAll()).object();
             const auto choices = data["choices"].toArray();
-            if (!choices.isEmpty())
-                result = guard(text, choices.first().toObject()["message"].toObject()["content"].toString());
+            if (!choices.isEmpty()) {
+                raw = choices.first().toObject()["message"].toObject()["content"].toString();
+                result = guard(text, raw);
+            }
         }
+        emit diagnostic(generation, {{"type", "response"}, {"source", text}, {"raw", raw}, {"text", result},
+            {"networkError", int(reply->error())}, {"httpStatus", reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()}});
         reply->deleteLater();
         emit completed(generation, text, result);
     });

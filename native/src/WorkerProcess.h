@@ -16,6 +16,7 @@ class WorkerProcess : public QObject {
     qint64 pid() const { return m_process.processId(); }
     QString state() const { return m_state; }
   signals:
+    void requestSent(const QJsonObject &message);
     void event(const QJsonObject &message);
     void stateChanged();
     void failed(const QString &error);
