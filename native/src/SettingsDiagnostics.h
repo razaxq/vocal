@@ -179,6 +179,9 @@ inline void verifySettings(QQuickWindow *window, AppController *controller, cons
                     .save(output + ".native-frame.png");
             }
 #endif
+            // Enable both groups so the trigger page can scroll its first
+            // dropdown offscreen even when unrelated controls move elsewhere.
+            controller->setSetting("mouseEnabled", true);
             window->setProperty("page", 0);
             window->setHeight(520);
             break;
@@ -230,7 +233,8 @@ inline void verifySettings(QQuickWindow *window, AppController *controller, cons
                 return;
             }
             check->result["dropdownFollowsPageScroll"] = true;
-            check->view->setProperty("contentY", 240);
+            check->view->setProperty("contentY", check->view->property("contentY").toDouble() +
+                check->select->mapToItem(window->contentItem(), QPointF{}).y() + check->select->height());
             break;
         case 10:
             if (check->popup->property("visible").toBool() || check->select->hasActiveFocus()) {
