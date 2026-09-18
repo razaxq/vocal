@@ -41,7 +41,7 @@ QString AppController::result() const { return joinSpeechFragments(m_result, liv
 
 AppController::AppController(QString dataDirectory, QString modelDirectory, bool hooks, bool maintenance,
                              QObject *parent)
-    : QObject(parent), m_settings(std::move(dataDirectory)), m_debug(QDir(m_settings.directory()).filePath("debug")),
+    : QObject(parent), m_startupGate(maintenance), m_settings(std::move(dataDirectory)), m_debug(QDir(m_settings.directory()).filePath("debug")),
       m_catalog(modelDirectory), m_manager(modelDirectory),
       m_platform(createPlatform()), m_triggers(m_platform.get()), m_output(m_platform.get()),
       m_desktop(m_settings.directory()) {
@@ -173,9 +173,10 @@ AppController::AppController(QString dataDirectory, QString modelDirectory, bool
             }
         });
     }
-    connect(&m_offline, &WorkerProcess::failed, this, [this](const QString &error) {
+    connect(&m_offline, &WorkerProcess::failed, this, [this](const QString &detail) {
         if (m_loadingRoles)
             return;
+        const auto error = modelFailure(m_finalPunctuationJob ? "punct" : "modelId", detail);
         if (m_finalPunctuationJob) {
             m_finalPunctuationJob = 0;
             m_finalPunctuationDone = true;
@@ -190,9 +191,10 @@ AppController::AppController(QString dataDirectory, QString modelDirectory, bool
 
         fail(error);
     });
-    connect(&m_stream, &WorkerProcess::failed, this, [this](const QString &error) {
+    connect(&m_stream, &WorkerProcess::failed, this, [this](const QString &detail) {
         if (m_loadingRoles)
             return;
+        const auto error = modelFailure("streamingModel", detail);
         m_error = error;
         if (m_settings.values()["modelId"] == "none") {
             fail(error);
@@ -203,9 +205,10 @@ AppController::AppController(QString dataDirectory, QString modelDirectory, bool
         emit changed();
         pump();
     });
-    connect(&m_corrector, &WorkerProcess::failed, this, [this](const QString &error) {
+    connect(&m_corrector, &WorkerProcess::failed, this, [this](const QString &detail) {
         if (m_loadingRoles)
             return;
+        const auto error = modelFailure("correctionModel", detail);
         m_error = error;
         if (m_finalCorrectionJob) {
             m_finalCorrectionJob = 0;
@@ -334,6 +337,16 @@ AppController::AppController(QString dataDirectory, QString modelDirectory, bool
         emit modelsChanged();
     });
     connect(&m_desktop, &DesktopServices::changed, this, &AppController::maintenanceChanged);
+    connect(&m_desktop, &DesktopServices::changed, this, [this] {
+        if (m_startupGate.finishIfReady(m_desktop.updateInfo()["state"].toString(),
+                                       m_settings.values()["autoUpdate"].toBool(true))) {
+            configureTriggers();
+            configureCapture();
+            reloadModel();
+        } else if (m_startupGate.pending()) {
+            updateState();
+        }
+    });
     connect(&m_desktop, &DesktopServices::failed, this, [this](const QString &error) {
         m_error = error;
         emit changed();
@@ -388,11 +401,11 @@ AppController::AppController(QString dataDirectory, QString modelDirectory, bool
     m_tick.start();
     configureCapture();
     QTimer::singleShot(0, this, [this, maintenance] {
-        reloadModel();
         if (maintenance) {
+            updateState();
             m_desktop.configure(m_settings.values());
             m_desktop.checkUpdates();
-        }
+        } else reloadModel();
     });
 }
 AppController::~AppController() {
@@ -433,8 +446,18 @@ void AppController::refreshModelRows() {
     m_correctionRows.update(modelRows("correction", "correctionModel", m_corrector));
     m_punctuationRows.update(m_manager.models("punct"));
 }
+QString AppController::modelFailure(const QString &role, const QString &detail) const {
+    const bool en = m_settings.values()["language"] == "en";
+    const auto name = role == "punct" ? (en ? "Punctuation model" : "标点模型") :
+        role == "modelId" ? (en ? "Final recognition model" : "定稿模型") :
+        role == "streamingModel" ? (en ? "Streaming model" : "流式模型") : (en ? "Text correction model" : "文字纠错模型");
+    const auto id = m_settings.values()[role].toString();
+    const auto model = m_catalog.find(id)["name"].toString(id);
+    return en ? QString("%1%2 failed. Check the selected model, or reload it in General → Resource usage.\n%3").arg(name, model.isEmpty() ? "" : " (" + model + ")", detail)
+              : QString("%1%2运行失败。请检查所选模型，或在“通用 → 资源占用”重新加载。\n%3").arg(name, model.isEmpty() ? "" : "（" + model + "）", detail);
+}
 void AppController::loadRole(const QString &key) {
-    if (!serviceEnabled()) {
+    if (!serviceEnabled() || m_startupGate.pending()) {
         updateState();
         return;
     }
@@ -463,7 +486,10 @@ void AppController::reloadModel() {
 void AppController::updateState() {
     if (m_loadingRoles)
         return;
-    if (!serviceEnabled())
+    if (m_startupGate.pending())
+        m_state = m_desktop.updateInfo()["state"] == "downloading" || m_desktop.updateInfo()["state"] == "installing"
+                      ? "updating" : "checkingUpdate";
+    else if (!serviceEnabled())
         m_state = "paused";
     else if (m_recording)
         m_state = "recording";
@@ -486,6 +512,7 @@ void AppController::armIdle() {
         m_idle.stop();
 }
 void AppController::setSetting(const QString &key, const QVariant &value) {
+    clearSettingError(key);
     if (key == "serviceEnabled") {
         setServiceEnabled(value.toBool());
         return;
@@ -511,13 +538,13 @@ void AppController::setSetting(const QString &key, const QVariant &value) {
     }
     QString error;
     if (key == "launchAtLogin" && !m_desktop.setStartup(value.toBool(), &error)) {
-        m_error = error;
-        emit changed();
+        m_settingErrors[key] = (m_settings.values()["language"] == "en" ? "Launch at login: " : "开机自启：") + error;
+        emit settingErrorsChanged();
         return;
     }
     if (!m_settings.set(key, json, &error)) {
-        m_error = error;
-        emit changed();
+        m_settingErrors[key] = error;
+        emit settingErrorsChanged();
         return;
     }
     configureTriggers();
@@ -597,7 +624,7 @@ void AppController::cancelDownload(const QString &id) {
 }
 void AppController::configureTriggers() {
     auto config = m_settings.values();
-    if (!serviceEnabled()) {
+    if (!serviceEnabled() || m_startupGate.pending()) {
         config["keyboardEnabled"] = false;
         config["mouseEnabled"] = false;
     }
@@ -641,7 +668,7 @@ void AppController::setServiceEnabled(bool enabled) {
     emit settingsChanged();
 }
 void AppController::configureCapture() {
-    m_audio.setWarmup(m_allowMicWarmup && serviceEnabled() && !m_testing &&
+    m_audio.setWarmup(m_allowMicWarmup && serviceEnabled() && !m_startupGate.pending() && !m_testing &&
                          m_settings.values()["microphoneWarmup"].toBool(true),
                      QByteArray::fromBase64(m_settings.values()["deviceId"].toString().toLatin1()));
 }
@@ -725,7 +752,7 @@ void AppController::setOverlaySize(int width, int height) {
     if (updateOverlayPosition()) emit changed();
 }
 void AppController::start(bool inject) {
-    if (!serviceEnabled() || m_session)
+    if (!serviceEnabled() || m_session || m_startupGate.pending())
         return;
     const auto selected = m_settings.values()["modelId"].toString();
     if (selected != "none" && !m_catalog.installed(m_catalog.find(selected))) {

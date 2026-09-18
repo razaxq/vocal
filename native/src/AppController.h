@@ -7,6 +7,7 @@
 #include "LlmService.h"
 #include "ModelManager.h"
 #include "ModelRows.h"
+#include "NativeRelease.h"
 #include "Settings.h"
 #include "SessionDebug.h"
 #include <QSet>
@@ -23,6 +24,7 @@ class AppController : public QObject {
     QML_ELEMENT
     QML_UNCREATABLE("Created by the C++ application")
     Q_PROPERTY(QVariantMap settings READ settings NOTIFY settingsChanged)
+    Q_PROPERTY(QVariantMap settingErrors READ settingErrors NOTIFY settingErrorsChanged)
     Q_PROPERTY(QAbstractItemModel *models READ models CONSTANT)
     Q_PROPERTY(QAbstractItemModel *streamingModels READ streamingModels CONSTANT)
     Q_PROPERTY(QAbstractItemModel *correctionModels READ correctionModels CONSTANT)
@@ -102,6 +104,8 @@ class AppController : public QObject {
     void transcribeForTest(const QString &path, int rate, int segments = 1, int releaseDelayMs = 0, int packetMs = 0,
                            std::function<bool()> releaseReady = {});
     Q_INVOKABLE void setSetting(const QString &key, const QVariant &value);
+    QVariantMap settingErrors() const { return m_settingErrors; }
+    Q_INVOKABLE void clearSettingError(const QString &key) { m_settingErrors.remove(key); emit settingErrorsChanged(); }
     Q_INVOKABLE void toggleRecording();
     Q_INVOKABLE void cancelRecording();
     Q_INVOKABLE void toggleMicTest();
@@ -133,6 +137,7 @@ class AppController : public QObject {
     void segmentRecognized(const QString &raw, const QString &corrected);
     void changed();
     void settingsChanged();
+    void settingErrorsChanged();
     void modelsChanged();
     void levelChanged();
     void devicesChanged();
@@ -142,6 +147,8 @@ class AppController : public QObject {
     void debugChanged();
 
   private:
+    StartupUpdateGate m_startupGate;
+    QVariantMap m_settingErrors;
     struct Job {
         int id = 0, rate = 16000;
         QString path, preview, raw, text;
@@ -151,6 +158,7 @@ class AppController : public QObject {
     QVariantList modelRows(const QString &group, const QString &key, const WorkerProcess &worker) const;
     void refreshModelRows();
     void configureTriggers();
+    QString modelFailure(const QString &role, const QString &detail) const;
     void loadRole(const QString &key);
     void updateState();
     void armIdle();

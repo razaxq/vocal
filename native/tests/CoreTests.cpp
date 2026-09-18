@@ -1,6 +1,7 @@
 #include "AudioCapture.h"
 #include "AudioSegmenter.h"
 #include "ModelCatalog.h"
+#include "NativeRelease.h"
 #include "Platform.h"
 #include "Settings.h"
 #include "TriggerController.h"
@@ -24,6 +25,42 @@ class FakePlatform : public Platform {
 class CoreTests : public QObject {
     Q_OBJECT
   private slots:
+    void startupUpdateGate() {
+        StartupUpdateGate updating;
+        for (const auto &state : {"idle", "checking", "available", "downloading", "installing"}) {
+            QVERIFY(!updating.finishIfReady(state, true));
+            QVERIFY(updating.pending());
+        }
+        QVERIFY(updating.finishIfReady("error", true)); // Download/install failure resumes ASR.
+        QVERIFY(!updating.pending());
+        QVERIFY(!updating.finishIfReady("checking", true)); // Later checks never gate again.
+        for (const auto &state : {"current", "error", "development"}) {
+            StartupUpdateGate startup;
+            QVERIFY(startup.finishIfReady(state, true));
+            QVERIFY(!startup.pending());
+        }
+        StartupUpdateGate manual;
+        QVERIFY(manual.finishIfReady("available", false));
+        StartupUpdateGate diagnostic(false);
+        QVERIFY(!diagnostic.pending());
+    }
+    void settingErrorsIdentifyFieldAndRange() {
+        QTemporaryDir dir;
+        Settings settings(dir.path());
+        QString error;
+        for (const QJsonValue value : {QJsonValue(99999), QJsonValue(1.5), QJsonValue("abc")}) {
+            QVERIFY(!settings.set("mouseHoldDelayMs", value, &error));
+            QVERIFY(error.contains("按住多久开始"));
+            QVERIFY(error.contains("100–10000 ms"));
+            QCOMPARE(settings.values()["mouseHoldDelayMs"].toInt(), 1000);
+        }
+        QVERIFY(settings.set("language", "en"));
+        QVERIFY(!settings.set("idleUnloadMin", -1, &error));
+        QVERIFY(error.contains("Unload when idle"));
+        QVERIFY(error.contains("0 to 240 min"));
+        QVERIFY(settings.set("idleUnloadMin", 20));
+        QCOMPARE(Settings(dir.path()).values()["idleUnloadMin"].toInt(), 20);
+    }
     void migratesAiOffWithoutEnablingCloudRequests() {
         QTemporaryDir dir;
         QFile file(dir.filePath("settings.json"));

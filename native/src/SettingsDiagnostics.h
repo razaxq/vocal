@@ -204,6 +204,7 @@ inline void verifySettings(QQuickWindow *window, AppController *controller, cons
             pointer(check->select->mapToItem(window->contentItem(), QPointF(30, 16)), false);
             break;
         case 8: {
+            if (check->popup->property("opacity").toDouble() < 0.99) return;
             if (!check->popup->property("visible").toBool()) {
                 finish("Mouse release closed dropdown");
                 return;
@@ -226,6 +227,8 @@ inline void verifySettings(QQuickWindow *window, AppController *controller, cons
             break;
         }
         case 9:
+            if (auto *animation = window->findChild<QObject *>("settingsWheelAnimation");
+                animation && animation->property("running").toBool()) return;
             if (!check->popup->property("visible").toBool() ||
                 qAbs((check->popup->property("y").toDouble() - check->popupY) -
                      (check->select->mapToItem(window->contentItem(), QPointF{}).y() - check->selectY)) > 1) {
@@ -291,8 +294,54 @@ inline void verifySettings(QQuickWindow *window, AppController *controller, cons
         case 18:
             check->result["pausedDuringLoad"] =
                 controller->state() == "paused" && controller->resourceProcesses()->rowCount() == 1;
-            finish(check->result["pausedDuringLoad"].toBool() ? QString{} : "Workers survived pause during load");
+            if (!check->result["pausedDuringLoad"].toBool()) {
+                finish("Workers survived pause during load"); return;
+            }
+            window->setProperty("page", 5);
+            break;
+        case 19: {
+            auto *input = settingsItem(window->contentItem(), "input-idleUnloadMin");
+            if (!input) { finish("Number field missing"); return; }
+            input->setProperty("text", "999");
+            QMetaObject::invokeMethod(input, "editingFinished");
+            if (!input->property("invalid").toBool() || input->property("text") != "999" ||
+                !controller->settingErrors().contains("idleUnloadMin")) {
+                finish("Invalid number was not retained and identified inline"); return;
+            }
+            check->view->setProperty("contentY", check->view->property("contentY").toDouble() +
+                input->mapToItem(window->contentItem(), QPointF{}).y() - 200);
+            break;
+        }
+        case 20: {
+            window->grabWindow().save(output + ".number-error.png");
+            auto *input = settingsItem(window->contentItem(), "input-idleUnloadMin");
+            if (!input) { finish("Number field disappeared after validation"); return; }
+            input->setProperty("text", "12");
+            QMetaObject::invokeMethod(input, "editingFinished");
+            if (input->property("invalid").toBool() || controller->settings()["idleUnloadMin"] != 12) {
+                finish("Corrected number was not saved"); return;
+            }
+            check->result["inlineNumberErrorAndRecovery"] = true;
+            window->setProperty("page", 8);
+            // Read immediately upon page construction, before animations finish.
+            const auto rows = controller->resourceProcesses()->rowCount();
+            int found = 0;
+            const auto inspect = [&](auto &&self, QQuickItem *item) -> bool {
+                if (item->objectName().startsWith("resourceBar-")) {
+                    ++found;
+                    if (qAbs(item->property("displayedPosition").toDouble() - item->property("visualPosition").toDouble()) > 0.001)
+                        return false;
+                }
+                for (auto *child : item->childItems()) if (!self(self, child)) return false;
+                return true;
+            };
+            if (!inspect(inspect, window->contentItem()) || found != rows || found == 0) {
+                finish("Resource bars did not start at their current values"); return;
+            }
+            check->result["resourceBarsStartAtCurrentValues"] = true;
+            finish({});
             return;
+        }
         }
         ++check->step;
     });

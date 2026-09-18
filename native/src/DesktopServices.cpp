@@ -132,7 +132,7 @@ bool DesktopServices::setStartup(bool enabled, QString *error) {
 #endif
 }
 void DesktopServices::checkUpdates() {
-    if (m_checking)
+    if (m_checking || m_update["state"] == "downloading" || m_update["state"] == "installing")
         return;
     QFile marker(QDir(QCoreApplication::applicationDirPath()).filePath("native-release.json"));
     const bool development = !marker.open(QIODevice::ReadOnly) ||
@@ -151,6 +151,9 @@ void DesktopServices::checkUpdates() {
     request.setRawHeader("User-Agent", "Vocal-Native");
     request.setTransferTimeout(15000);
     auto *reply = m_network.get(request);
+    // A transfer timeout alone can be extended by a slow trickle of bytes.
+    // Bound the entire startup check so unavailable networks cannot block ASR.
+    QTimer::singleShot(15000, reply, [reply] { if (!reply->isFinished()) reply->abort(); });
     connect(reply, &QNetworkReply::downloadProgress, this, [reply](qint64 size, qint64 total) {
         if (size > 4 * 1024 * 1024 || total > 4 * 1024 * 1024)
             reply->abort();
@@ -161,6 +164,7 @@ void DesktopServices::checkUpdates() {
         const auto document = QJsonDocument::fromJson(bytes);
         if (reply->error() != QNetworkReply::NoError || !document.isArray() || bytes.size() > 4 * 1024 * 1024) {
             m_update["state"] = "error";
+            m_update["available"] = false;
             m_update["message"] = "检查失败，请重试";
             reply->deleteLater();
             emit changed();
@@ -177,12 +181,17 @@ void DesktopServices::checkUpdates() {
     });
 }
 void DesktopServices::installUpdate() {
-    if (!packaged() || m_update["state"] != "available")
+    if (!packaged() || !m_update["available"].toBool() ||
+        (m_update["state"] != "available" && m_update["state"] != "error"))
         return;
     const QUrl url(m_update["url"].toString());
     if (url.scheme() != "https" || url.host() != "github.com" ||
-        !url.path().startsWith("/razaxq/vocal/releases/download/"))
+        !url.path().startsWith("/razaxq/vocal/releases/download/")) {
+        m_update["state"] = "error";
+        m_update["message"] = "更新地址无效，请在关于页面重试";
+        emit changed();
         return;
+    }
     m_update["state"] = "downloading";
     m_update["message"] = "正在下载更新…";
     emit changed();
@@ -190,7 +199,8 @@ void DesktopServices::installUpdate() {
     auto file = std::make_shared<QSaveFile>(path);
     auto hash = std::make_shared<QCryptographicHash>(QCryptographicHash::Sha256);
     if (!file->open(QIODevice::WriteOnly)) {
-        m_update["state"] = "available";
+        m_update["state"] = "error";
+        m_update["message"] = "无法保存更新，请检查磁盘空间后重试";
         emit failed("无法写入更新文件");
         emit changed();
         return;
@@ -214,7 +224,7 @@ void DesktopServices::installUpdate() {
         reply->deleteLater();
         if (!ok) {
             file->cancelWriting();
-            m_update["state"] = "available";
+            m_update["state"] = "error";
             m_update["message"] = "更新下载失败，请重试";
             emit changed();
             return;
@@ -222,10 +232,13 @@ void DesktopServices::installUpdate() {
         QProcess installer;
         configureNativeUpdate(installer, path, QCoreApplication::applicationPid(), QCoreApplication::applicationDirPath());
         if (installer.startDetached()) {
+            m_update["state"] = "installing";
+            m_update["message"] = "正在安装更新…";
+            emit changed();
             QCoreApplication::quit();
             return;
         }
-        m_update["state"] = "available";
+        m_update["state"] = "error";
         m_update["message"] = "无法启动安装程序";
         emit changed();
     });

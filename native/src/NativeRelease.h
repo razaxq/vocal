@@ -6,6 +6,22 @@
 #include <QVariantMap>
 #include <QVersionNumber>
 
+// Only the initial update attempt gates model startup. A later manual check
+// must not stop an already running recognition session.
+class StartupUpdateGate {
+  public:
+    explicit StartupUpdateGate(bool pending = true) : m_pending(pending) {}
+    bool pending() const { return m_pending; }
+    bool finishIfReady(const QString &state, bool automatic) {
+        if (!m_pending || state == "idle" || state == "checking" || state == "downloading" ||
+            state == "installing" || (state == "available" && automatic)) return false;
+        m_pending = false;
+        return true;
+    }
+  private:
+    bool m_pending;
+};
+
 // Match the filenames produced by package.ps1. Electron assets and preview
 // builds cannot enter the native stable update channel.
 inline QVariantMap selectNativeRelease(const QJsonArray &releases, const QString &currentVersion) {

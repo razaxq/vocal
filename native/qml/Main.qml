@@ -87,6 +87,14 @@ ApplicationWindow {
     }
     component GreenProgress: ProgressBar {
         id: progress
+        property bool animate: true
+        property real displayedPosition: visualPosition
+        property bool initialized: false
+        Component.onCompleted: Qt.callLater(() => initialized = true)
+        Behavior on displayedPosition {
+            enabled: progress.animate && progress.initialized
+            NumberAnimation { duration: 60 }
+        }
         implicitHeight: 4
         padding: 0
         background: Rectangle {
@@ -96,11 +104,10 @@ ApplicationWindow {
         }
         contentItem: Item {
             Rectangle {
-                width: progress.visualPosition * parent.width
+                width: progress.displayedPosition * parent.width
                 height: parent.height
                 radius: height / 2
                 color: root.accent
-                Behavior on width { NumberAnimation { duration: 60 } }
             }
         }
     }
@@ -116,6 +123,8 @@ ApplicationWindow {
     function status() {
         return ({
                 ready: tr("准备就绪", "Ready"),
+                checkingUpdate: tr("正在检查更新…", "Checking for updates…"),
+                updating: tr("正在更新…", "Updating…"),
                 loading: tr("正在加载模型…", "Loading…"),
                 recording: tr("正在聆听…", "Listening…"),
                 recognizing: tr("正在整理…", "Finishing…"),
@@ -235,6 +244,7 @@ ApplicationWindow {
     }
     component Input: TextField {
         id: input
+        property bool invalid: false
         font.family: root.font.family
         implicitHeight: 34
         color: root.fg
@@ -245,7 +255,7 @@ ApplicationWindow {
         background: Rectangle {
             radius: 8
             color: root.surface
-            border.color: input.activeFocus ? root.accent : root.line
+            border.color: input.invalid ? root.danger : input.activeFocus ? root.accent : root.line
             Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutQuad } }
         }
     }
@@ -464,84 +474,101 @@ ApplicationWindow {
                 visible: text.length > 0
             }
         }
+        Note {
+            text: root.controller.settingErrors[section.toggleKey] || ""
+            visible: text.length > 0
+            color: root.danger
+        }
     }
-    component FormRow: RowLayout {
+    component FormRow: ColumnLayout {
         id: row
         required property var field
         property bool wide: ["idleUnloadMin", "maxReplaceChars", "keyboardInFullscreen", "mouseInFullscreen"].indexOf(field.key) >= 0
-        spacing: 20
+        spacing: 6
         Layout.fillWidth: true
         Layout.topMargin: 3
-        ColumnLayout {
-            spacing: 4
-            Layout.preferredWidth: row.wide ? -1 : 144
-            Layout.fillWidth: row.wide
-            Label {
-                font.family: root.font.family
-                text: row.field.label
-                color: root.fg
-                font.pixelSize: 13
-                Layout.fillWidth: true
-                wrapMode: Text.Wrap
-            }
-            Note {
-                text: row.field.hint || ""
-                visible: text.length > 0
-                font.pixelSize: 11
-            }
-        }
-        Loader {
-            Layout.preferredWidth: row.field.type === "number" ? 112 : row.field.type === "bool" ? 38 : -1
-            Layout.fillWidth: row.field.type !== "number" && row.field.type !== "bool"
-            sourceComponent: row.field.type === "bool" ? boolField : row.field.type === "select" ? selectField : textField
-            Component {
-                id: boolField
-                Toggle {
-                    settingKey: row.field.key
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 20
+            ColumnLayout {
+                spacing: 4
+                Layout.preferredWidth: row.wide ? -1 : 144
+                Layout.fillWidth: row.wide
+                Label {
+                    font.family: root.font.family
+                    text: row.field.label
+                    color: root.fg
+                    font.pixelSize: 13
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
+                }
+                Note {
+                    text: row.field.hint || ""
+                    visible: text.length > 0
+                    font.pixelSize: 11
                 }
             }
-            Component {
-                id: selectField
-                Select {
-                    settingKey: row.field.key
-                    options: row.field.options
+            Loader {
+                Layout.preferredWidth: row.field.type === "number" ? 112 : row.field.type === "bool" ? 38 : -1
+                Layout.fillWidth: row.field.type !== "number" && row.field.type !== "bool"
+                sourceComponent: row.field.type === "bool" ? boolField : row.field.type === "select" ? selectField : textField
+                Component {
+                    id: boolField
+                    Toggle {
+                        settingKey: row.field.key
+                    }
                 }
-            }
-            Component {
-                id: textField
-                Input {
-                    text: row.field.type === "number" ? String(Number(root.controller.settings[row.field.key]) / (row.field.factor || 1)) : root.controller.settings[row.field.key]
-                    echoMode: row.field.secret ? TextInput.Password : TextInput.Normal
-                    inputMethodHints: row.field.type === "number" ? Qt.ImhFormattedNumbersOnly : Qt.ImhNone
-                    onActiveFocusChanged: {
-                        if (!activeFocus && row.field.type === "number" && text.trim().length === 0) {
-                            text = Qt.binding(() => String(Number(root.controller.settings[row.field.key]) / (row.field.factor || 1)));
+                Component {
+                    id: selectField
+                    Select {
+                        settingKey: row.field.key
+                        options: row.field.options
+                    }
+                }
+                Component {
+                    id: textField
+                    Input {
+                        objectName: "input-" + row.field.key
+                        invalid: Boolean(root.controller.settingErrors[row.field.key])
+                        text: row.field.type === "number" ? String(Number(root.controller.settings[row.field.key]) / (row.field.factor || 1)) : root.controller.settings[row.field.key]
+                        echoMode: row.field.secret ? TextInput.Password : TextInput.Normal
+                        inputMethodHints: row.field.type === "number" ? Qt.ImhFormattedNumbersOnly : Qt.ImhNone
+                        onActiveFocusChanged: {
+                            if (!activeFocus && row.field.type === "number" && text.trim().length === 0) {
+                                root.controller.clearSettingError(row.field.key);
+                                text = Qt.binding(() => String(Number(root.controller.settings[row.field.key]) / (row.field.factor || 1)));
+                            }
+                        }
+                        onEditingFinished: {
+                            if (row.field.type === "number") {
+                                // Empty input is a draft, not zero. Restore on blur,
+                                // including when Enter was pressed while still empty.
+                                if (text.trim().length === 0)
+                                    return;
+                                const n = Number(text) * (row.field.factor || 1);
+                                root.controller.setSetting(row.field.key, Number.isFinite(n) ? n : text);
+                            } else
+                                root.controller.setSetting(row.field.key, text);
                         }
                     }
-                    onEditingFinished: {
-                        if (row.field.type === "number") {
-                            // Empty input is a draft, not zero. Restore on blur,
-                            // including when Enter was pressed while still empty.
-                            if (text.trim().length === 0)
-                                return;
-                            const n = Number(text) * (row.field.factor || 1);
-                            if (Number.isFinite(n))
-                                root.controller.setSetting(row.field.key, Math.round(n));
-                        } else
-                            root.controller.setSetting(row.field.key, text);
-                    }
                 }
             }
+            Label {
+                font.family: root.font.family
+                visible: Boolean(row.field.unit)
+                text: row.field.unit || ""
+                color: root.subtle
+            }
+            Item {
+                visible: !row.wide && (row.field.type === "bool" || row.field.type === "number")
+                Layout.fillWidth: true
+            }
         }
-        Label {
-            font.family: root.font.family
-            visible: Boolean(row.field.unit)
-            text: row.field.unit || ""
-            color: root.subtle
-        }
-        Item {
-            visible: !row.wide && (row.field.type === "bool" || row.field.type === "number")
-            Layout.fillWidth: true
+        Note {
+            objectName: "error-" + row.field.key
+            text: root.controller.settingErrors[row.field.key] || ""
+            visible: text.length > 0
+            color: root.danger
         }
     }
     component Words: ColumnLayout {
@@ -598,6 +625,11 @@ ApplicationWindow {
             Note {
                 text: draft.text === words.savedText ? root.tr("已保存", "Saved") : root.tr("保存后生效", "Applied after saving")
             }
+        }
+        Note {
+            text: root.controller.settingErrors[words.settingKey] || ""
+            visible: text.length > 0
+            color: root.danger
         }
     }
     component Models: ColumnLayout {
@@ -991,6 +1023,7 @@ ApplicationWindow {
                 }
                 NumberAnimation {
                     id: wheelScroll
+                    objectName: "settingsWheelAnimation"
                     target: scroller.contentItem
                     property: "contentY"
                     duration: 140
@@ -1009,16 +1042,33 @@ ApplicationWindow {
                         Layout.topMargin: 8
                         Layout.bottomMargin: 4
                     }
-                    RowLayout {
+                    ColumnLayout {
                         visible: root.controller.error.length > 0
                         Layout.fillWidth: true
+                        spacing: 6
+                        property bool expanded: false
+                        id: errorNotice
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Label {
+                                text: root.tr("操作未完成", "Action could not be completed")
+                                color: root.danger
+                                font.bold: true
+                                Layout.fillWidth: true
+                            }
+                            Action {
+                                text: root.tr("关闭", "Dismiss")
+                                onClicked: { errorNotice.expanded = false; root.controller.dismissError(); }
+                            }
+                        }
                         Note {
-                            text: root.controller.error
+                            text: errorNotice.expanded ? root.controller.error : root.controller.error.split("\n")[0].slice(0, 180)
                             color: root.danger
                         }
                         Action {
-                            text: "×"
-                            onClicked: root.controller.dismissError()
+                            visible: root.controller.error.indexOf("\n") >= 0 || root.controller.error.length > 180
+                            text: errorNotice.expanded ? root.tr("收起详情", "Hide details") : root.tr("查看详情", "Show details")
+                            onClicked: errorNotice.expanded = !errorNotice.expanded
                         }
                     }
                     Loader {
@@ -1717,6 +1767,7 @@ ApplicationWindow {
                             Layout.preferredWidth: 80
                         }
                         GreenProgress {
+                            objectName: "resourceBar-" + process.modelData.id
                             Layout.fillWidth: true
                             value: Number(process.modelData.share)
                         }

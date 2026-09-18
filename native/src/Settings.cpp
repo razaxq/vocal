@@ -64,13 +64,13 @@ Settings::Settings(QString directory) : m_directory(std::move(directory)) {
     if (!file.exists())
         return;
     if (!file.open(QIODevice::ReadOnly)) {
-        m_error = file.errorString();
+        m_error = "无法读取设置文件，请检查文件权限：" + file.fileName() + "\n" + file.errorString();
         return;
     }
     QJsonParseError error;
     const auto doc = QJsonDocument::fromJson(file.readAll(), &error);
     if (error.error != QJsonParseError::NoError || !doc.isObject()) {
-        m_error = "Invalid settings.json; the original file has been preserved.";
+        m_error = "设置文件损坏。请修复或移走此文件后重启，原文件已保留：" + file.fileName() + "\n" + error.errorString();
         return;
     }
     const auto stored = doc.object();
@@ -109,44 +109,54 @@ bool Settings::set(const QString &key, const QJsonValue &value, QString *error) 
     };
     if (!m_error.isEmpty())
         return fail(m_error);
-    if (!m_values.contains(key) || value.type() != m_values[key].type())
-        return fail("Invalid setting");
-    if (key == "mouseHoldDelayMs" && (value.toInt() < 100 || value.toInt() > 10000))
-        return fail("Invalid delay");
-    if (key == "mouseButton" && !QStringList{"left", "middle", "leftMiddle"}.contains(value.toString()))
-        return fail("Invalid mouse button");
-    if (key == "language" && !QStringList{"zh", "en"}.contains(value.toString()))
-        return fail("Invalid language");
+    const bool en = m_values["language"] == "en";
+    const QMap<QString, QPair<QString, QString>> labels{
+        {"mouseHoldDelayMs", {"按住多久开始", "Hold delay"}}, {"minHoldMs", {"最短录音时长", "Minimum recording length"}},
+        {"doubleTapWindowMs", {"双击间隔", "Double tap interval"}}, {"debounceMs", {"重复触发间隔", "Trigger interval"}},
+        {"endpointSilenceMs", {"停顿多久算一句", "Pause length"}}, {"idleUnloadMin", {"空闲释放内存", "Unload when idle"}},
+        {"clipboardThreshold", {"粘贴字数门槛", "Paste above"}}, {"minChars", {"结束时最少字数", "Minimum final length"}},
+        {"rollingChars", {"每次新增字数", "Edit every"}}, {"maxReplaceChars", {"自动替换上限", "Replacement limit"}},
+        {"llmTimeoutMs", {"AI 整理超时", "AI editing timeout"}}, {"language", {"界面语言", "Interface language"}},
+        {"mouseButton", {"鼠标按键", "Mouse button"}}, {"keyboardMode", {"键盘触发方式", "Keyboard mode"}},
+        {"cleanupLevel", {"清理程度", "Cleanup level"}}, {"injectionStrategy", {"输入方式", "Input method"}},
+        {"injectMode", {"何时输入", "Output timing"}}, {"overlayTextMode", {"预览内容", "Transcript preview"}},
+        {"theme", {"主题", "Theme"}}, {"consolidationMode", {"整理时机", "Editing timing"}},
+        {"correctionModel", {"文字纠错模型", "Text correction model"}}, {"hotwords", {"个人热词", "Personal hotwords"}},
+        {"extraFillers", {"额外口头禅", "Extra fillers"}}, {"clipboardOnlyApps", {"始终粘贴的应用", "Apps that use paste"}}
+    };
+    const auto label = labels.contains(key) ? (en ? labels[key].second : labels[key].first) : key;
+    const auto invalid = [&] { return fail(en ? label + ": choose a valid value." : label + "：请选择有效的值。"); };
+    const QMap<QString, QPair<int, int>> ranges{{"mouseHoldDelayMs", {100, 10000}},
+        {"minHoldMs", {0, 2000}}, {"doubleTapWindowMs", {150, 800}}, {"debounceMs", {0, 2000}},
+        {"endpointSilenceMs", {400, 5000}}, {"idleUnloadMin", {0, 240}}, {"clipboardThreshold", {1, 100000}},
+        {"minChars", {0, 100000}}, {"rollingChars", {50, 100000}}, {"maxReplaceChars", {0, 100000}},
+        {"llmTimeoutMs", {500, 60000}}};
+    if (ranges.contains(key) && (!value.isDouble() || value.toDouble() != value.toInt() ||
+        value.toInt() < ranges[key].first || value.toInt() > ranges[key].second)) {
+        const auto unit = key.endsWith("Ms") ? "ms" : key == "idleUnloadMin" ? "min" : en ? "chars" : "字";
+        return fail(en ? QString("%1: enter a whole number from %2 to %3 %4.").arg(label).arg(ranges[key].first).arg(ranges[key].second).arg(unit)
+                       : QString("%1：请输入 %2–%3 %4 范围内的整数。").arg(label).arg(ranges[key].first).arg(ranges[key].second).arg(unit));
+    }
+    if (!m_values.contains(key) || value.type() != m_values[key].type()) return invalid();
     const QMap<QString, QStringList> choices{{"keyboardMode", {"hold", "toggle", "doubleTap"}},
-                                             {"cleanupLevel", {"off", "light", "standard"}},
-                                             {"injectionStrategy", {"auto", "unicode", "clipboard"}},
-                                             {"injectMode", {"final", "preview"}},
-                                             {"overlayTextMode", {"all", "latest", "none"}},
-                                             {"theme", {"system", "light", "dark"}},
-                                             {"consolidationMode", {"off", "onFinish", "rolling"}},
-                                             {"correctionModel", {"none", "macbert4csc", "bert-chinese-int8"}}};
-    if (choices.contains(key) && !choices[key].contains(value.toString()))
-        return fail("Invalid option");
-    const QMap<QString, QPair<int, int>> ranges{{"minHoldMs", {0, 2000}},         {"doubleTapWindowMs", {150, 800}},
-                                                {"debounceMs", {0, 2000}},        {"endpointSilenceMs", {400, 5000}},
-                                                {"idleUnloadMin", {0, 240}},      {"clipboardThreshold", {1, 100000}},
-                                                {"minChars", {0, 100000}},        {"rollingChars", {50, 100000}},
-                                                {"maxReplaceChars", {0, 100000}}, {"llmTimeoutMs", {500, 60000}}};
-    if (ranges.contains(key) &&
-        (value.toDouble() != value.toInt() || value.toInt() < ranges[key].first || value.toInt() > ranges[key].second))
-        return fail("Invalid number");
+        {"mouseButton", {"left", "middle", "leftMiddle"}}, {"language", {"zh", "en"}},
+        {"cleanupLevel", {"off", "light", "standard"}}, {"injectionStrategy", {"auto", "unicode", "clipboard"}},
+        {"injectMode", {"final", "preview"}}, {"overlayTextMode", {"all", "latest", "none"}},
+        {"theme", {"system", "light", "dark"}}, {"consolidationMode", {"off", "onFinish", "rolling"}},
+        {"correctionModel", {"none", "macbert4csc", "bert-chinese-int8"}}};
+    if (choices.contains(key) && !choices[key].contains(value.toString())) return invalid();
     if (value.isArray())
         for (auto entry : value.toArray())
             if (!entry.isString())
-                return fail("Invalid list");
+                return fail(en ? label + ": enter one text item per line." : label + "：请每行填写一项文字。");
     QJsonObject next = m_values;
     next[key] = value;
     if (!QDir().mkpath(m_directory))
-        return fail("Cannot create settings directory");
+        return fail(en ? label + ": cannot create the settings folder. Check folder permissions." : label + "：无法创建设置文件夹，请检查文件夹权限。");
     QSaveFile file(QDir(m_directory).filePath("settings.json"));
     const auto bytes = QJsonDocument(next).toJson();
     if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit())
-        return fail(file.errorString());
+        return fail(en ? label + ": could not save. Check disk space and folder permissions.\n" + file.errorString() : label + "：保存失败，请检查磁盘空间和文件夹权限。\n" + file.errorString());
     m_values = next;
     return true;
 }

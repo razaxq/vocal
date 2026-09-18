@@ -228,6 +228,8 @@ int main(int argc, char *argv[]) {
         const QMap<QString, QString> states{{"paused", en ? "Paused · models unloaded" : "已暂停，模型已释放"},
                                             {"ready", en ? "Ready" : "准备就绪"},
                                             {"unloaded", en ? "Models asleep" : "模型已休眠"},
+                                            {"checkingUpdate", en ? "Checking for updates…" : "正在检查更新…"},
+                                            {"updating", en ? "Updating…" : "正在更新…"},
                                             {"loading", en ? "Loading models…" : "正在加载模型…"},
                                             {"recording", en ? "Listening…" : "正在聆听…"},
                                             {"recognizing", en ? "Finishing…" : "正在整理…"},
