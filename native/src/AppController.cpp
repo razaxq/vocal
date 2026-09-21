@@ -275,7 +275,13 @@ AppController::AppController(QString dataDirectory, QString modelDirectory, bool
             m_finalCorrectionJob = 0;
             m_finalCorrectionDone = true;
             m_watchdog.stop();
-            const auto corrected = cleanupSpeech(event["text"].toString(), m_settings.values());
+            const auto contextText = event["text"].toString();
+            QString corrected;
+            // Keep cleanup boundaries: a filler removed at the beginning of a
+            // segment must not reappear in the middle of the final transcript.
+            if (contextText.size() == m_correctionRaw.size()) {
+                corrected = cleanupSpeechSegments(contextText, m_correctionRanges, m_settings.values());
+            }
             m_debug.record("cleanup.context", {{"source", event["text"]}, {"text", corrected}});
             if (!corrected.isEmpty())
                 m_unpunctuated = corrected;
@@ -286,6 +292,7 @@ AppController::AppController(QString dataDirectory, QString modelDirectory, bool
         if (event["type"] != "result" || id != m_correctionJob || !m_jobs.contains(id))
             return;
         auto &job = m_jobs[id];
+        job.correction = event["text"].toString();
         job.text = cleanupSpeech(event["text"].toString(), m_settings.values());
         m_debug.record("cleanup.segment", {{"id", id}, {"source", event["text"]}, {"text", job.text}});
         job.stage = "done";
@@ -673,11 +680,15 @@ void AppController::configureCapture() {
                      QByteArray::fromBase64(m_settings.values()["deviceId"].toString().toLatin1()));
 }
 void AppController::resetTranscript() {
+    m_contextWindow.reset();
     m_segmentOffset = 0;
     m_decodePasses = 0;
     m_finalPunctuationJob = m_punctuationPasses = 0;
     m_finalPunctuationDone = false;
     m_unpunctuated.clear();
+    m_correctionRaw.clear();
+    m_correctionSeed.clear();
+    m_correctionRanges.clear();
     m_punctuationSource.clear();
     m_punctuatedSource.clear();
 }
@@ -901,6 +912,12 @@ void AppController::cutSegment(QVector<float> samples, int rate) {
     if (!m_session)
         return;
     const bool voiced = hasVoice(samples, rate);
+    if (m_debug.active() && m_settings.values()["modelId"] != "none") {
+        const auto window = m_contextWindow.append(samples.size(), rate, m_segmentOffset, m_segment, voiced);
+        if (window.samples)
+            m_debug.record("context.shadow.window", {{"startSample", window.start}, {"samples", window.samples},
+                {"sampleRate", window.rate}, {"firstId", window.firstId}, {"lastId", window.lastId}, {"applied", false}});
+    }
     m_debug.record("segment.cut", {{"id", m_segment}, {"startSample", m_segmentOffset},
         {"samples", samples.size()}, {"sampleRate", rate}, {"voiced", voiced}, {"recording", m_recording}});
     m_segmentOffset += samples.size();
@@ -1022,6 +1039,7 @@ void AppController::pump() {
             } else if (m_corrector.ready() && m_corrector.send({{"type", "correct"},
                                                                 {"id", job.id},
                                                                 {"text", job.raw},
+                                                                {"debugTrace", m_debug.active()},
                                                                 {"hotwords", config["hotwords"]},
                                                                 {"dictionaryEnabled", config["dictionaryEnabled"]}})) {
                 m_correctionJob = job.id;
@@ -1042,6 +1060,10 @@ void AppController::drainJobs() {
         m_debug.record("segment.committed", {{"id", job.id}, {"raw", job.raw}, {"text", job.text}});
         QFile::remove(job.path);
         if (!job.text.isEmpty()) {
+            m_correctionRaw = joinSpeechFragments(m_correctionRaw, job.raw);
+            m_correctionRanges.append({int(m_correctionRaw.size() - job.raw.size()), int(job.raw.size())});
+            m_correctionSeed = joinSpeechFragments(m_correctionSeed,
+                job.correction.size() == job.raw.size() ? job.correction : job.raw);
             m_unpunctuated = joinSpeechFragments(m_unpunctuated, job.text);
             m_raw = joinSpeechFragments(m_raw, job.raw);
             ++m_segments;
@@ -1073,11 +1095,12 @@ void AppController::completeSession() {
         if (config["correctionModel"] != "none" && !m_unpunctuated.isEmpty() && m_corrector.ready()) {
             const int id = ++m_request;
             if (m_corrector.send({{"type", "correct"}, {"id", id},
-                                 {"text", m_unpunctuated},
+                                 {"text", m_correctionRaw}, {"previousText", m_correctionSeed},
+                                 {"contextOnly", true}, {"debugTrace", m_debug.active()},
                                  {"hotwords", config["hotwords"]}, {"dictionaryEnabled", config["dictionaryEnabled"]},
                                  {"fullContext", true}})) {
                 m_finalCorrectionJob = id;
-                emit contextCorrectionRequested(m_unpunctuated);
+                emit contextCorrectionRequested(m_correctionRaw);
                 m_watchdog.start(qBound(60000, ((m_unpunctuated.size() + 95) / 96) * 2500 + 10000, 300000));
                 updateState();
                 return;
@@ -1105,6 +1128,7 @@ void AppController::finishOutput() {
     if (!m_waitingOutput) endSession();
 }
 void AppController::endSession() {
+    m_contextWindow.reset();
     m_waitingOutput = false;
     m_finishing = false;
     if (!m_result.isEmpty()) saveHistory();
@@ -1151,6 +1175,7 @@ void AppController::insertText(const QString &text, bool final) {
         {"busy", m_output.busy()}, {"error", error}});
 }
 void AppController::cancelRecording() {
+    m_contextWindow.reset();
     m_debug.finish("cancelled", {{"raw", m_raw}, {"text", result()}, {"error", m_error}});
     m_waitingOutput = false;
     m_output.begin(0); // Cancel unsent previews without changing an in-flight clipboard.

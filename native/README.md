@@ -156,6 +156,16 @@ python native/scripts/replay-debug.py "记录目录" --app data/native-ci-build/
 
 工具复用原来的分段边界、模型输入和词库，比较各阶段新旧结果；不会打开麦克风、写入其他应用或调用云服务。它用于定位识别差异，不模拟原始 GUI 时序、设备故障或外部编辑器；需要相同的模型权重和相应版本。保存的模型文件大小/修改时间不是权重校验值。词库在会话中更新、没有结束的流式尾段等情况不能完整重放，工具会明确报错。
 
+纠错响应包含直接推理与逐词评分次数；开启调试时另记候选分数、拒绝原因及实际采用的修改（每次最多 512 条）。结束复核使用原始 ASR 文本和已接受的分段修改，不重复整篇逐词评分；数字、个人热词及“他/她/它”等代词受保护。
+
+调试录音还记录 `context.shadow.window`：最长 15 s 的相邻完整音频片段范围。录音期间仅记范围，不复制额外音频、不额外识别、不覆盖预览。录完后可离线比较上下文识别结果：
+
+```powershell
+python native/scripts/replay-debug.py "记录目录" --app data/native-ci-build/bin/vocal-native.exe --models data/models --context-windows --output data/context-replay.json
+```
+
+报告中的 `contextShadow` 同时保存原分段文本、合并音频候选与耗时。此操作额外使用本地模型资源，建议在不录音时运行；候选只用于对照，文字不同不代表更准确。旧调试录音可从分段记录推导范围。
+
 ## Actions 与正式构建
 
 CI 已接入 Windows Qt 编译、C++ 测试、QML 检查、安装包/ZIP 以及无 SDK PATH 的部署检查。

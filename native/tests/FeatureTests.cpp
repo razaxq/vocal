@@ -1,5 +1,6 @@
 #include "Dictionary.h"
 #include "CorrectionGuard.h"
+#include "AudioContextWindow.h"
 #include "LlmService.h"
 #include "ModelManager.h"
 #include "ModelRows.h"
@@ -136,6 +137,40 @@ class FeatureTests : public QObject {
         QVERIFY(preservesNumericCharacters(u"三幢楼", u"三栋楼"));
         QVERIFY(preservesNumericCharacters(u"懒柜", u"懒鬼"));
         QVERIFY(preservesNumericCharacters(u"已在", u"已在"));
+    }
+    void correctionPreservesReferents() {
+        QVERIFY(!preservesPronouns(u"他", u"她"));
+        QVERIFY(!preservesPronouns(u"它们", u"他们"));
+        QVERIFY(!preservesPronouns(u"其他", u"其她"));
+        QVERIFY(!preservesPronouns(u"他", u"你"));
+        QVERIFY(preservesPronouns(u"他的成债", u"他的成绩"));
+        QVERIFY(preservesPronouns(u"拦柜", u"懒鬼"));
+    }
+    void finalContextKeepsSegmentCleanupBoundaries() {
+        const QJsonObject settings{{"cleanupLevel", "standard"}};
+        QCOMPARE(cleanupSpeechSegments("嗯你好呃天气很好", {{0, 3}, {3, 5}}, settings), QString("你好天气很好"));
+        QCOMPARE(cleanupSpeechSegments("hello world", {{0, 5}, {6, 5}}, settings), QString("hello world"));
+        QCOMPARE(cleanupSpeechSegments("二三点十五分", {{0, 1}, {1, 5}}, settings), QString("二三点十五分"));
+        QCOMPARE(cleanupSpeechSegments("嗯你好呃天气很好", {{0, 3}, {3, 5}}, {{"cleanupLevel", "off"}}),
+                 QString("嗯你好呃天气很好"));
+    }
+    void diagnosticWindowsAreBoundedAndContiguous() {
+        AudioContextWindow context;
+        QCOMPARE(context.append(2, 1, 0, 1, true).samples, 0);
+        const auto pair = context.append(2, 1, 2, 2, true);
+        QCOMPARE(pair.samples, 4);
+        QCOMPARE(pair.start, 0);
+        QCOMPARE(pair.firstId, 1);
+        QCOMPARE(pair.lastId, 2);
+        QCOMPARE(context.append(1, 1, 9, 3, true).samples, 0); // discontinuity
+        QCOMPARE(context.append(1, 2, 10, 4, true).samples, 0); // device rate
+        QCOMPARE(context.append(1, 2, 11, 5, false).samples, 0);
+        QCOMPARE(context.append(1, 2, 12, 6, true).samples, 0); // silence reset
+        context.reset();
+        QCOMPARE(context.append(10, 1, 0, 7, true).samples, 0);
+        QCOMPARE(context.append(6, 1, 10, 8, true).samples, 0); // whole cuts only
+        QCOMPARE(context.append(16, 1, 16, 9, true).samples, 0);
+        QCOMPARE(context.append(1, 1, 32, 10, true).samples, 0); // oversized reset
     }
     void silentUpdatePreservesInstallDirectory() {
         QProcess installer;

@@ -34,7 +34,7 @@ for case in ('disabled', 'enabled', 'silent'):
                     llmApiKey='DEBUG_TEST_SECRET_NOT_FOR_LOGS', llmEnabled=False,
                     injectMode='preview', automaticSegmentation=True)
     (data / 'settings.json').write_text(json.dumps(settings), encoding='utf8')
-    pcm = array.array('f', [0]) * 48000 if case == 'silent' else speech + array.array('f', [0]) * 6400 + speech
+    pcm = array.array('f', [0]) * 48000 if case == 'silent' else (speech + array.array('f', [0]) * 6400) * 4
     path = data / 'input.f32'
     path.write_bytes(pcm.tobytes())
     process = subprocess.run([str(app), '--data-dir', str(data), '--model-dir', str(models),
@@ -60,6 +60,20 @@ for case in ('disabled', 'enabled', 'silent'):
         for log in (session / 'session.json', session / 'events.jsonl'):
             assert 'DEBUG_TEST_SECRET_NOT_FOR_LOGS' not in log.read_text(encoding='utf8')
         if case == 'enabled':
+            shadow = [e for e in events if e['stage'] == 'context.shadow.window']
+            assert shadow and all(not e['applied'] and e['samples'] <= 15 * e['sampleRate'] for e in shadow), shadow
+            assert result['decodePasses'] == result['segments'], result
+            live_decodes = [e['message'] for e in events if e['stage'] == 'worker.request'
+                            and e['worker'] == 'offline' and e['message'].get('type') == 'decode']
+            assert len(live_decodes) == result['decodePasses']
+            assert all(q['id'] in {c['id'] for c in cuts} for q in live_decodes)
+            final_ids = {e['message']['id'] for e in events if e['stage'] == 'worker.request'
+                         and e['worker'] == 'correction' and e['message'].get('contextOnly')}
+            assert len(final_ids) == 1
+            assert all(e['message']['maskedCalls'] == 0 for e in events if e['stage'] == 'worker.response'
+                       and e['worker'] == 'correction' and e['message'].get('id') in final_ids)
+            assert any(e['stage'] == 'worker.response' and e['worker'] == 'correction'
+                       and 'correctionTrace' in e['message'] for e in events)
             for role in ('offline', 'streaming', 'correction'):
                 assert any(e['stage'] == 'worker.response' and e['worker'] == role
                            and e['message']['type'] == 'result' for e in events), role
@@ -68,8 +82,9 @@ for case in ('disabled', 'enabled', 'silent'):
                        and e['message'].get('decodeTrace') for e in events)
             assert any(e['stage'] == 'preview' and e['text'] for e in events)
             assert any(e['stage'] == 'output.request' and e['final'] for e in events)
-            report = replay_debug.replay(session, app, models)
+            report = replay_debug.replay(session, app, models, context_windows=True)
             assert all(r['sameText'] for rows in report['workers'].values() for r in rows), report
+            assert report['contextShadow'] and all(not r['applied'] for r in report['contextShadow'])
             (data / 'replay.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf8')
     reports.append(dict(case=case, **result))
     print(f'PASS {case}: complete audio, stage records, secret exclusion and local replay', flush=True)

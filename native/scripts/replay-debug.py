@@ -32,7 +32,7 @@ def load_audio(path):
     return fmt[2], pcm
 
 
-def replay(session, app, models):
+def replay(session, app, models, context_windows=False):
     meta = json.loads((session / 'session.json').read_text(encoding='utf8'))
     if meta.get('schemaVersion') != 1: raise ValueError('Unsupported recording format')
     rate, pcm = load_audio(session / 'audio.wav')
@@ -46,6 +46,20 @@ def replay(session, app, models):
     if hashlib.sha256(dictionary.read_bytes()).hexdigest() != meta['dictionary']['sha256']:
         raise ValueError('Dictionary checksum differs')
     cuts = {e['id']: e for e in events if e['stage'] == 'segment.cut'}
+    # For older recordings derive the same adjacent whole-cut windows. Recorded
+    # windows are range metadata only: live recognition does no extra inference.
+    windows = [e for e in events if e['stage'] == 'context.shadow.window']
+    if context_windows and not windows:
+        previous = None
+        for cut in cuts.values():
+            if not cut.get('voiced') or cut['samples'] <= 0 or cut['samples'] > rate * 15:
+                previous = None
+                continue
+            if (previous and previous['startSample'] + previous['samples'] == cut['startSample']
+                    and previous['samples'] + cut['samples'] <= rate * 15):
+                windows.append(dict(startSample=previous['startSample'], samples=previous['samples'] + cut['samples'],
+                                    sampleRate=rate, firstId=previous['id'], lastId=cut['id']))
+            previous = cut
     report = {'originalVersion': meta['version'], 'originalBuild': meta.get('build'),
               'originalSummary': meta.get('summary'), 'workers': {},
               'scope': 'Original local model inputs; cloud, capture timing and text injection are not replayed.'}
@@ -78,6 +92,27 @@ def replay(session, app, models):
                     cursors[ident] += count
                 requests.append(message)
             if not requests: continue
+            shadow = {}
+            if context_windows and role == 'offline' and meta['settings'][setting] != 'none':
+                decodes = {q['id']: q for q in requests if q['type'] == 'decode'}
+                ident = max(q.get('id', 0) for q in requests) + 1
+                for window in windows:
+                    first_cut, last_cut = cuts.get(window['firstId']), cuts.get(window['lastId'])
+                    if (not first_cut or not last_cut or first_cut['id'] not in decodes or last_cut['id'] not in decodes):
+                        continue
+                    start, count = window['startSample'], window['samples']
+                    if (start < 0 or count <= 0 or count > rate * 15 or (start + count) * 4 > len(pcm)
+                            or window['sampleRate'] != rate or start != first_cut['startSample']
+                            or first_cut['startSample'] + first_cut['samples'] != last_cut['startSample']
+                            or count != first_cut['samples'] + last_cut['samples']):
+                        raise ValueError('Invalid context window')
+                    path = Path(temp) / f'context-{ident}.f32'
+                    path.write_bytes(pcm[start * 4:(start + count) * 4])
+                    request = dict(decodes[last_cut['id']], id=ident, path=str(path), addPunctuation=False,
+                                   streamText='', debugTrace=True)
+                    requests.append(request)
+                    shadow[ident] = window
+                    ident += 1
             process = subprocess.run([str(app), flag, '--model-dir', str(models), '--model-id',
                 meta['settings'][setting], '--dictionary', str(dictionary)],
                 input=''.join(json.dumps(x, ensure_ascii=False) + '\n' for x in requests),
@@ -89,8 +124,23 @@ def replay(session, app, models):
                         if e['stage'] == 'worker.response' and e['worker'] == role
                         and e['message'].get('type') == 'result'}
             results = [e for e in responses if e.get('type') == 'result']
+            if shadow:
+                comparisons = []
+                for result in results:
+                    if result['id'] not in shadow: continue
+                    window = shadow[result['id']]
+                    left = original.get(window['firstId'], {}).get('text', '')
+                    right = original.get(window['lastId'], {}).get('text', '')
+                    gap = (' ' if left and right and left[-1].isascii() and right[0].isascii()
+                           and left[-1].isalnum() and right[0].isalnum()
+                           and (left[-1].isalpha() or right[0].isalpha()) else '')
+                    baseline = left + gap + right
+                    comparisons.append(dict(window=window, original=baseline, candidate=result['text'],
+                        elapsedMs=result.get('elapsedMs'), changed=baseline != result['text'], applied=False))
+                report['contextShadow'] = comparisons
+                report['contextScope'] = 'Offline diagnostic candidates only; text differences do not establish accuracy.'
             report['workers'][role] = [dict(id=e['id'], original=original.get(e['id']), replay=e,
-                sameText=e.get('text') == original.get(e['id'], {}).get('text')) for e in results]
+                sameText=e.get('text') == original.get(e['id'], {}).get('text')) for e in results if e['id'] not in shadow]
             if set(original) - {e['id'] for e in results}:
                 raise RuntimeError(f'Missing replay results: {role}')
     return report
@@ -102,12 +152,15 @@ def main():
     parser.add_argument('--app', required=True, type=Path)
     parser.add_argument('--models', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument('--context-windows', action='store_true', help='Also compare adjacent audio windows offline (up to 15 seconds)')
     args = parser.parse_args()
-    report = replay(args.session.resolve(), args.app.resolve(), args.models.resolve())
+    report = replay(args.session.resolve(), args.app.resolve(), args.models.resolve(), args.context_windows)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf8')
     results = [r for entries in report['workers'].values() for r in entries]
     print(f'Replayed {len(results)} results; {sum(r["sameText"] for r in results)} unchanged. Report: {args.output}')
+    if args.context_windows:
+        print(f'Compared {len(report.get("contextShadow", []))} audio windows; candidates were not applied.')
 
 
 if __name__ == '__main__': main()

@@ -56,7 +56,7 @@ for streaming, offline, correction, automatic in [('none', 'paraformer-yue-offli
         assert result['decodePasses'] == result['segments'], result
         assert result['raw'] == ''.join(item['raw'] for item in result['segmentTranscripts']), result
         if correction != 'none':
-            assert result['contextCorrectionSource'] == ''.join(item['corrected'] for item in result['segmentTranscripts']), result
+            assert result['contextCorrectionSource'] == ''.join(item['raw'] for item in result['segmentTranscripts']), result
         assert result['punctuationPasses'] >= 2, result
         assert result['committedWhileRecording'], result
         requested = result['outputRequests']

@@ -12,6 +12,13 @@ QString joinSpeechFragments(const QString &left, const QString &right) {
     }
     return left + right;
 }
+QString cleanupSpeechSegments(const QString &input, const QList<QPair<int, int>> &ranges,
+                             const QJsonObject &settings) {
+    QString output;
+    for (const auto &[start, length] : ranges)
+        output = joinSpeechFragments(output, cleanupSpeech(input.mid(start, length), settings));
+    return cleanupSpeech(output, settings);
+}
 QString cleanupSpeech(const QString &input, const QJsonObject &settings) {
     const auto level = settings["cleanupLevel"].toString("standard");
     if (level == "off" || input.trimmed().isEmpty())

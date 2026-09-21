@@ -2,6 +2,7 @@
 #include "AudioCapture.h"
 #include "AsyncAudioCapture.h"
 #include "AudioSegmenter.h"
+#include "AudioContextWindow.h"
 #include <functional>
 #include "DesktopServices.h"
 #include "LlmService.h"
@@ -151,7 +152,7 @@ class AppController : public QObject {
     QVariantMap m_settingErrors;
     struct Job {
         int id = 0, rate = 16000;
-        QString path, preview, raw, text;
+        QString path, preview, raw, text, correction;
         bool streamDone = false, streamQueued = false;
         QString stage = "waiting";
     };
@@ -191,6 +192,7 @@ class AppController : public QObject {
     QMap<QString, QSet<int>> m_debugRequests;
     QString m_debugError;
     qint64 m_segmentOffset = 0;
+    AudioContextWindow m_contextWindow;
     ModelCatalog m_catalog;
     ModelManager m_manager;
     ModelRows m_offlineRows, m_streamRows, m_correctionRows, m_punctuationRows;
@@ -213,6 +215,8 @@ class AppController : public QObject {
     QString m_state = "loading", m_result, m_partial, m_error, m_raw;
     // Model input and displayed punctuation are separate, immutable snapshots.
     QString m_unpunctuated, m_punctuationSource, m_punctuatedSource;
+    QString m_correctionRaw, m_correctionSeed;
+    QList<QPair<int, int>> m_correctionRanges;
     QVariantList m_history;
     double m_level = 0, m_testLevel = 0;
     qsizetype m_streamAccepted = 0;

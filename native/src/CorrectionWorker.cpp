@@ -75,6 +75,14 @@ QList<WordSpan> wordSegments(const QString &text) {
     return {};
 }
 class Corrector {
+  public:
+    QJsonArray trace;
+    int directCalls = 0, maskedCalls = 0;
+  private:
+    bool tracing = false;
+    void record(QJsonObject event) {
+        if (tracing && trace.size() < 512) trace.append(event);
+    }
     QLibrary library;
     const OrtApi *api = nullptr;
     OrtEnv *env = nullptr;
@@ -121,6 +129,7 @@ class Corrector {
         return result;
     }
     QVector<float> predict(const QList<Token> &tokens, int maskStart = -1, int maskEnd = -1) {
+        if (maskStart >= 0) ++maskedCalls; else ++directCalls;
         QVector<int64_t> input, attention(tokens.size(), 1), types(tokens.size(), 0);
         for (const auto &token : tokens)
             input.append(maskStart >= 0 && token.start >= maskStart && token.end <= maskEnd ? ids["[MASK]"] : token.id);
@@ -219,12 +228,25 @@ class Corrector {
             api->ReleaseEnv(env);
     }
     QString correct(const QString &text, const QStringList &protectedWords, const Dictionary &dictionary,
-                    bool useDictionary, bool fullContext = false) {
+                    bool useDictionary, bool fullContext = false, bool contextOnly = false,
+                    const QString &previous = {}, bool debugTrace = false) {
+        trace = {};
+        directCalls = maskedCalls = 0;
+        tracing = debugTrace;
+        // Context is evaluated from original ASR text. Preserve already accepted
+        // segment edits instead of correcting processed text repeatedly.
+        const bool seeded = !previous.isNull();
+        if (seeded && previous.size() != text.size())
+            throw std::runtime_error("Correction seed length differs from ASR source");
+        if (contextOnly && !csc) return seeded ? previous : text;
         QSet<int> protectedAt;
         auto mark = [&](int at, int length) {
             for (int i = at; i < at + length; ++i)
                 protectedAt.insert(i);
         };
+        if (seeded)
+            for (int i = 0; i < text.size(); ++i)
+                if (text[i] != previous[i]) mark(i, 1);
         for (const auto &pattern :
              {QString("`[^`]*`|https?://\\S+|[\\w.+-]+@[\\w.-]+|[A-Za-z0-9_][A-Za-z0-9_.:+/#@-]*"),
               QString("[零〇一二三四五六七八九十百千万亿两]+(?:[点年月日号时分秒元块个岁度成倍%％])?")}) {
@@ -261,7 +283,7 @@ class Corrector {
                 const auto logits = predict(tokens);
                 for (int i = 0; i < tokens.size(); ++i) {
                     auto token = tokens[i];
-                    if (token.start < 0 || token.end - token.start != 1 || !eligible(start + token.start, 1))
+                    if (token.start < 0 || token.end - token.start != 1)
                         continue;
                     const auto source = chunk.mid(token.start, 1);
                     const float *row = logits.constData() + i * vocab.size();
@@ -279,11 +301,21 @@ class Corrector {
                         sum += std::exp(row[j] - row[best]);
                     // Require stronger evidence without a phonetic match. These
                     // thresholds are model scores, not calibrated accuracy rates.
-                    if (1 / sum >= (homophone ? .98 : .995) && margin >= (homophone ? 4 : 6))
+                    const bool allowed = eligible(start + token.start, 1);
+                    const bool numeric = preservesNumericCharacters(source, target);
+                    const bool pronoun = preservesPronouns(source, target);
+                    const bool confident = 1 / sum >= (homophone ? .98 : .995) && margin >= (homophone ? 4 : 6);
+                    record({{"kind", "direct"}, {"at", start + token.start}, {"source", source}, {"target", target},
+                        {"probability", 1 / sum}, {"margin", margin}, {"homophone", homophone},
+                        {"reason", !allowed ? "protected-or-outside-window" : !numeric ? "number" :
+                            !pronoun ? "pronoun" : !confident ? "threshold" : "candidate"}});
+                    if (allowed && numeric && pronoun && confident)
                         edits.append({start + token.start, source, target, margin, true});
                 }
             }
-            if (!useDictionary)
+            // Segment passes retain useful dictionary corrections. The final
+            // pass must not repeat up to twelve masked inferences per window.
+            if (!useDictionary || contextOnly)
                 continue;
             struct Span {
                 int at;
@@ -341,6 +373,10 @@ class Corrector {
                 }
                 std::sort(scores.begin(), scores.end(), [](auto a, auto b) { return a.first > b.first; });
                 const double margin = scores[0].first - original;
+                record({{"kind", "masked"}, {"at", start + span.at}, {"source", span.source},
+                    {"target", scores[0].second}, {"margin", margin}, {"gap", scores[0].first - scores[1].first},
+                    {"reason", scores[0].second == span.source ? "unchanged" :
+                        margin < (span.known ? 8 : 3.8) || scores[0].first - scores[1].first < 2.5 ? "threshold" : "candidate"}});
                 if (scores[0].second != span.source && margin >= (span.known ? 8 : 3.8) &&
                     scores[0].first - scores[1].first >= 2.5)
                     edits.append({start + span.at, span.source, scores[0].second, margin});
@@ -352,14 +388,19 @@ class Corrector {
             bool occupied = false;
             for (int i = edit.start; i < edit.start + edit.source.size(); ++i)
                 occupied |= protectedAt.contains(i);
-            if (occupied || !preservesNumericCharacters(edit.source, edit.target) ||
+            const bool pronoun = preservesPronouns(edit.source, edit.target);
+            const bool numeric = preservesNumericCharacters(edit.source, edit.target);
+            record({{"kind", "decision"}, {"at", edit.start}, {"source", edit.source}, {"target", edit.target},
+                {"reason", occupied ? "protected-or-overlap" : !numeric ? "number" : !pronoun ? "pronoun" :
+                    (!edit.contextual && !dictionary.similarSound(edit.source, edit.target)) ? "phonetic-mismatch" : "applied"}});
+            if (occupied || !numeric || !pronoun ||
                 (!edit.contextual && !dictionary.similarSound(edit.source, edit.target)))
                 continue;
             accepted.append(edit);
             mark(edit.start, edit.source.size());
         }
         std::sort(accepted.begin(), accepted.end(), [](auto a, auto b) { return a.start > b.start; });
-        QString output = text;
+        QString output = seeded ? previous : text;
         for (const auto &edit : accepted)
             output.replace(edit.start, edit.source.size(), edit.target);
         return output;
@@ -402,8 +443,14 @@ int runCorrectionWorker(const QStringList &args) {
             timer.start();
             const auto text = corrector.correct(request["text"].toString(), words, dictionary,
                                                 request["dictionaryEnabled"].toBool(true),
-                                                request["fullContext"].toBool(false));
-            send({{"type", "result"}, {"id", request["id"]}, {"text", text}, {"elapsedMs", timer.elapsed()}});
+                                                request["fullContext"].toBool(false),
+                                                request["contextOnly"].toBool(false),
+                                                request.contains("previousText") ? request["previousText"].toString() : QString{},
+                                                request["debugTrace"].toBool(false));
+            QJsonObject result{{"type", "result"}, {"id", request["id"]}, {"text", text}, {"elapsedMs", timer.elapsed()},
+                {"directCalls", corrector.directCalls}, {"maskedCalls", corrector.maskedCalls}};
+            if (request["debugTrace"].toBool()) result["correctionTrace"] = corrector.trace;
+            send(result);
         }
         return 0;
     } catch (const std::exception &error) {
