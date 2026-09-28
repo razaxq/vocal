@@ -652,13 +652,14 @@ ApplicationWindow {
                 readonly property bool downloading: ["queued", "downloading", "extracting", "verifying"].indexOf(modelData.phase) >= 0
                 readonly property bool deleting: modelData.phase === "deleting"
                 readonly property bool disabledChoice: deleting || (isNone && !modelList.allowNone)
-                readonly property string subtitle: isNone ? (modelList.allowNone ? "" : root.tr("至少保留一种识别模型", "Keep at least one recognition model")) : [modelData.langs, modelData.note].filter(Boolean).join(" · ")
+                readonly property string displayName: isNone ? root.tr("不使用", "Off") : root.tr(String(modelData.name), String(modelData.nameEn || modelData.name))
+                readonly property string subtitle: isNone ? (modelList.allowNone ? "" : root.tr("至少保留一种识别模型", "Keep at least one recognition model")) : [root.tr(modelData.langs || "", modelData.langsEn || modelData.langs || ""), root.tr(modelData.note || "", modelData.noteEn || modelData.note || "")].filter(Boolean).join(" · ")
                 color: chosen ? root.accentSoft : selectionArea.containsMouse && !disabledChoice ? root.hover : "transparent"
                 border.color: chosen ? root.accentRing : "transparent"
                 opacity: disabledChoice ? 0.45 : 1
                 activeFocusOnTab: !disabledChoice
                 Accessible.role: Accessible.RadioButton
-                Accessible.name: isNone ? root.tr("不使用", "Off") : String(modelData.name)
+                Accessible.name: displayName
                 Accessible.checked: chosen
                 Keys.onPressed: event => {
                     if (!disabledChoice && !downloading && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)) {
@@ -715,7 +716,7 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             Label {
                                 font.family: root.font.family
-                                text: modelRow.isNone ? root.tr("不使用", "Off") : modelRow.modelData.name
+                                text: modelRow.displayName
                                 color: root.fg
                                 font.pixelSize: 13
                                 Layout.fillWidth: true
@@ -802,7 +803,7 @@ ApplicationWindow {
                     }
                     Note {
                         visible: Boolean(modelRow.modelData.error || modelRow.modelData.loadError)
-                        text: modelRow.modelData.error || root.tr("加载失败，请重试", "Loading failed. Try again.")
+                        text: modelRow.modelData.error || root.tr("模型加载或运行失败，请重新加载", "Model failed to load or run. Reload it.")
                         color: root.danger
                         Layout.leftMargin: 26
                     }

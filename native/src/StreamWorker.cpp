@@ -23,6 +23,7 @@ class Streaming {
     QLibrary library;
     const SherpaOnnxOnlineRecognizer *recognizer = nullptr;
     const SherpaOnnxOnlineStream *stream = nullptr;
+    int inputSampleRate = 0;
 #define API(name) decltype(&name) name = nullptr
     API(SherpaOnnxGetVersionStr);
     API(SherpaOnnxCreateOnlineRecognizer);
@@ -94,6 +95,7 @@ class Streaming {
         if (stream)
             SherpaOnnxDestroyOnlineStream(stream);
         stream = SherpaOnnxCreateOnlineStream(recognizer);
+        inputSampleRate = 0;
         if (!stream)
             throw std::runtime_error("Cannot create stream");
     }
@@ -105,6 +107,9 @@ class Streaming {
             const auto bytes = QByteArray::fromBase64(request["samples"].toString().toLatin1());
             if (rate < 8000 || rate > 192000 || bytes.size() % 4 || bytes.size() > rate * 4 * 120)
                 throw std::runtime_error("Invalid stream audio");
+            if (inputSampleRate && inputSampleRate != rate)
+                throw std::runtime_error("Streaming audio sample rate changed within a segment");
+            inputSampleRate = rate;
             QVector<float> samples(bytes.size() / 4);
             memcpy(samples.data(), bytes.data(), bytes.size());
             for (auto &sample : samples)
@@ -112,8 +117,11 @@ class Streaming {
                     sample = 0;
             SherpaOnnxOnlineStreamAcceptWaveform(stream, rate, samples.data(), samples.size());
         } else {
-            QVector<float> silence(8000, 0);
-            SherpaOnnxOnlineStreamAcceptWaveform(stream, 16000, silence.data(), silence.size());
+            // Sherpa keeps a resampler for the segment's input rate. Changing
+            // that rate for the trailing silence aborts the worker process.
+            const int rate = inputSampleRate ? inputSampleRate : 16000;
+            QVector<float> silence(rate / 2, 0);
+            SherpaOnnxOnlineStreamAcceptWaveform(stream, rate, silence.data(), silence.size());
             SherpaOnnxOnlineStreamInputFinished(stream);
         }
         while (SherpaOnnxIsOnlineStreamReady(recognizer, stream))

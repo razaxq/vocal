@@ -1,4 +1,5 @@
 #include "Platform.h"
+#include "InputReadiness.h"
 #include "WindowsTextSelection.h"
 #include <QCoreApplication>
 #include <QGuiApplication>
@@ -20,6 +21,19 @@ class WindowsPlatform final : public Platform {
     std::thread m_hookThread;
     std::atomic<DWORD> m_hookThreadId{0};
     static inline WindowsPlatform *instance = nullptr;
+    bool inputReady(quintptr saved, QString *error) {
+        const auto state = awaitInputReadiness(
+            [&] { return saved && target() == saved; },
+            [] {
+                for (int key : {VK_CONTROL, VK_SHIFT, VK_MENU, VK_LWIN, VK_RWIN})
+                    if (GetAsyncKeyState(key) & 0x8000) return false;
+                return true;
+            }, [] { Sleep(1); });
+        if (state == InputReadiness::Ready) return true;
+        *error = state == InputReadiness::FocusChanged ? "焦点已变化，结果已保留"
+                                                      : "请松开修饰键后重试";
+        return false;
+    }
     static LRESULT CALLBACK keyboardProc(int code, WPARAM message, LPARAM data) {
         if (code == HC_ACTION && instance) {
             const auto *event = reinterpret_cast<KBDLLHOOKSTRUCT *>(data);
@@ -103,6 +117,10 @@ class WindowsPlatform final : public Platform {
                 return false;
             }
             m_releasedTrigger = m_key;
+            if (!inputReady(saved, error)) {
+                endTextInput();
+                return false;
+            }
         }
         return true;
     }
@@ -198,11 +216,7 @@ class WindowsPlatform final : public Platform {
             *error = "焦点已变化，未替换文字";
             return false;
         }
-        for (int key : {VK_CONTROL, VK_SHIFT, VK_MENU, VK_LWIN, VK_RWIN})
-            if (GetAsyncKeyState(key) & 0x8000) {
-                *error = "请松开修饰键后重试";
-                return false;
-            }
+        if (!inputReady(saved, error)) return false;
         QString method;
         const bool selected = selectPreviousWindowsText(reinterpret_cast<HWND>(saved), expected, error, &method);
         setProperty("replacementSelectionMethod", method);
@@ -213,11 +227,7 @@ class WindowsPlatform final : public Platform {
             *error = "焦点已变化，未替换文字";
             return false;
         }
-        for (int key : {VK_CONTROL, VK_SHIFT, VK_MENU, VK_LWIN, VK_RWIN})
-            if (GetAsyncKeyState(key) & 0x8000) {
-                *error = "请松开修饰键后重试";
-                return false;
-            }
+        if (!inputReady(saved, error)) return false;
         for (int at = 0; at < count; at += 100) {
             if (target() != saved) {
                 *error = "焦点已变化，已停止替换";
@@ -247,11 +257,7 @@ class WindowsPlatform final : public Platform {
             *error = "焦点已变化，请手动粘贴";
             return false;
         }
-        for (int key : {VK_CONTROL, VK_SHIFT, VK_MENU, VK_LWIN, VK_RWIN})
-            if (GetAsyncKeyState(key) & 0x8000) {
-                *error = "请松开修饰键后重试";
-                return false;
-            }
+        if (!inputReady(saved, error)) return false;
         INPUT events[4]{};
         for (auto &e : events)
             e.type = INPUT_KEYBOARD;
@@ -346,11 +352,7 @@ class WindowsPlatform final : public Platform {
             return false;
         }
         // Never type while a physical modifier is held, or steal focus back.
-        for (int key : {VK_CONTROL, VK_SHIFT, VK_MENU, VK_LWIN, VK_RWIN})
-            if (GetAsyncKeyState(key) & 0x8000) {
-                *error = "Release modifier keys, then copy the result.";
-                return false;
-            }
+        if (!inputReady(saved, error)) return false;
         QVector<INPUT> events;
         events.reserve(text.size() * 2);
         for (QChar ch : text) {

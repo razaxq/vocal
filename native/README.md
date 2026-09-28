@@ -48,6 +48,18 @@
 
 MacBERT 允许高置信度的非同音单字纠错，非同音候选使用更严格门槛；数字、个人热词、代码和英文标识继续受保护。普通 BERT 仍使用同音词库候选。现有纠错保持文字长度，不能增删字或调整语序。
 
+### 句子纠错（实验）
+
+文字处理 → 文字纠错中可选 **ChineseErrorCorrector3 · 句子纠错**。使用本地 C++ llama.cpp CPU 推理和 Q4_K_M GGUF，下载约 2.50 GB（2.33 GiB），不需要 Python、Ollama 或联网 API。MacBERT 仍为默认。Windows x64 需要 AVX2、FMA、F16C、BMI2 指令支持；运行内存还包括上下文和临时计算缓冲，不能按模型文件大小判断总占用。
+
+- 录音期间直接预览定稿结果，结束后仅调用一次句子纠错，再统一标点和输出；模型允许有限增删字。已有 MacBERT/BERT 路径不变。
+- 每个窗口最多 240 个 UTF-16 单元，优先沿句号/逗号切分；长文本不会被截断。每窗口最多 45 s、每次请求总计 120 s，超时、输出未完成或校验失败时保留相应原文。窗口之间不共享完整语境。
+- 数字、代词、个人热词、代码、链接和英文标识受保护；大幅改写被拒绝。纯英文保持原文。生成模型仍可能误改含义，不能保证比 MacBERT 更准确。
+- 开启现有录音调试后记录原始生成及接受/拒绝原因；默认不保存这些诊断。取消正在进行的句子纠错会终止该工作进程，下次录音重新加载。
+- llama.cpp 源码由 CMake 下载固定提交并校验 SHA-256；静态链接到应用，模型不进入安装包。来源和许可证见 `THIRD-PARTY.md`。
+
+实模型回归：`python native/tests/sentence_correction.py --app data/native-ci-build/bin/vocal-native.exe --models data/models --output data/sentence-correction/results.json`。
+
 ## 构建环境
 
 已验证 Windows、Qt 6.8.3、MinGW 13.1、sherpa-onnx 1.13.8。
@@ -58,7 +70,7 @@ MacBERT 允许高置信度的非同音单字纠错，非同音候选使用更严
 ./native/scripts/dev.ps1 build
 ```
 
-`setup.ps1` 从独立锁文件安装 sherpa 的原生 SDK DLL，不安装 Electron。识别和纠错复用一份 CPU ONNX Runtime，
+`setup.ps1` 从独立锁文件安装 sherpa 的原生 SDK DLL，不安装 Electron。识别和 BERT 纠错复用一份 CPU ONNX Runtime，
 不打包 Node 绑定，也不打包第二份纠错运行库或 DirectML 库。
 `-QtRoot`、`-Toolchain`、`-RuntimeDirectory` 可指定其他工具路径，`-BuildDirectory` 可指定构建目录。不要并发配置/构建同一个目录。
 

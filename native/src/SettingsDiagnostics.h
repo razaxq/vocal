@@ -64,6 +64,39 @@ inline void verifySettings(QQuickWindow *window, AppController *controller, cons
         pointer(point, true);
         pointer(point, false);
     };
+    const auto selectWhilePaused = [=] {
+        const QList<QPair<QString, QAbstractItemModel *>> groups{
+            {"modelId", controller->models()}, {"streamingModel", controller->streamingModels()},
+            {"correctionModel", controller->correctionModels()}};
+        for (const auto &[role, rows] : groups) {
+            const auto original = controller->settings()[role].toString();
+            QString alternate;
+            for (int i = 0; i < rows->rowCount(); ++i) {
+                const auto row = rows->data(rows->index(i, 0), Qt::UserRole).toMap();
+                if (row["installed"].toBool() && row["id"] != original) {
+                    alternate = row["id"].toString();
+                    break;
+                }
+            }
+            if (alternate.isEmpty()) return QString("No alternate installed model for ") + role;
+            for (const auto &id : {alternate, original}) {
+                controller->selectModel(role, id);
+                int selected = 0;
+                bool expected = false;
+                for (int i = 0; i < rows->rowCount(); ++i) {
+                    const auto row = rows->data(rows->index(i, 0), Qt::UserRole).toMap();
+                    if (row["selected"].toBool()) {
+                        ++selected;
+                        expected = row["id"] == id && !row["loading"].toBool();
+                    }
+                }
+                if (controller->settings()[role] != id || selected != 1 || !expected ||
+                    controller->state() != "paused" || controller->resourceProcesses()->rowCount() != 1)
+                    return QString("Paused selection did not refresh without loading: ") + role;
+            }
+        }
+        return QString{};
+    };
     QObject::connect(timer, &QTimer::timeout, window, [=] {
         if (++check->ticks > 400) {
             finish("Timed out at step " + QString::number(check->step));
@@ -79,6 +112,9 @@ inline void verifySettings(QQuickWindow *window, AppController *controller, cons
                     return;
                 }
                 check->result["disabledStartup"] = true;
+                const auto error = selectWhilePaused();
+                if (!error.isEmpty()) { finish(error); return; }
+                check->result["pausedStartupModelSelection"] = true;
                 controller->setServiceEnabled(true);
                 return;
             }
@@ -89,6 +125,11 @@ inline void verifySettings(QQuickWindow *window, AppController *controller, cons
             if (controller->state() != "paused" || controller->resourceProcesses()->rowCount() != 1) {
                 finish("Pausing did not release workers");
                 return;
+            }
+            {
+                const auto error = selectWhilePaused();
+                if (!error.isEmpty()) { finish(error); return; }
+                check->result["pausedModelSelection"] = true;
             }
             controller->reloadModel();
             controller->toggleRecording();

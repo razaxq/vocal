@@ -3,6 +3,8 @@ out/
 dist/
 release/
 *.log
+__pycache__/
+*.pyc
 
 .env
 .env.local

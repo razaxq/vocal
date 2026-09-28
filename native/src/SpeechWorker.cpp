@@ -2,6 +2,7 @@
 #include "AudioCapture.h"
 #include "Dictionary.h"
 #include "ModelCatalog.h"
+#include "PunctuationModel.h"
 #include "sherpa-onnx/c-api.h"
 #include <QCoreApplication>
 #include <QDir>
@@ -25,7 +26,7 @@ void send(const QJsonObject &value) {
 class Recognizer {
     QLibrary library;
     const SherpaOnnxOfflineRecognizer *recognizer = nullptr;
-    const SherpaOnnxOfflinePunctuation *punctuation = nullptr;
+    std::unique_ptr<PunctuationModel> punctuation;
     bool hotwordSupport = false;
     int punctuationCalls = 0;
     Dictionary dictionary;
@@ -48,10 +49,6 @@ class Recognizer {
     API(SherpaOnnxDestroyOfflineRecognizerResult);
     API(SherpaOnnxReadWave);
     API(SherpaOnnxFreeWave);
-    API(SherpaOnnxCreateOfflinePunctuation);
-    API(SherpaOnnxDestroyOfflinePunctuation);
-    API(SherpaOfflinePunctuationAddPunct);
-    API(SherpaOfflinePunctuationFreeText);
 #undef API
   public:
     Recognizer(const QString &runtime, const ModelCatalog &catalog, const QString &id) : library(runtime) {
@@ -70,10 +67,6 @@ class Recognizer {
         LOAD(SherpaOnnxDestroyOfflineRecognizerResult);
         LOAD(SherpaOnnxReadWave);
         LOAD(SherpaOnnxFreeWave);
-        LOAD(SherpaOnnxCreateOfflinePunctuation);
-        LOAD(SherpaOnnxDestroyOfflinePunctuation);
-        LOAD(SherpaOfflinePunctuationAddPunct);
-        LOAD(SherpaOfflinePunctuationFreeText);
 #undef LOAD
         const QString version = QString::fromUtf8(SherpaOnnxGetVersionStr());
         if (version != "1.13.8" && version != "v1.13.8")
@@ -124,17 +117,18 @@ class Recognizer {
         // SenseVoice 2024 emits its own punctuation with ITN enabled; applying
         // CT-Transformer a second time produces duplicated sentence endings.
         if (id != "sensevoice-2024" && catalog.installed(punct)) {
-            const auto path = catalog.file(punct, "model").toUtf8();
-            SherpaOnnxOfflinePunctuationConfig pc{};
-            pc.model.ct_transformer = path.constData();
-            pc.model.num_threads = 1;
-            pc.model.provider = "cpu";
-            punctuation = SherpaOnnxCreateOfflinePunctuation(&pc);
+#ifdef Q_OS_WIN
+            const QString ort = "onnxruntime.dll";
+#elif defined(Q_OS_MACOS)
+            const QString ort = "libonnxruntime.dylib";
+#else
+            const QString ort = "libonnxruntime.so";
+#endif
+            punctuation = std::make_unique<PunctuationModel>(
+                QDir(QCoreApplication::applicationDirPath()).filePath(ort), catalog.file(punct, "model"));
         }
     }
     ~Recognizer() {
-        if (punctuation)
-            SherpaOnnxDestroyOfflinePunctuation(punctuation);
         if (recognizer)
             SherpaOnnxDestroyOfflineRecognizer(recognizer);
     }
@@ -145,12 +139,7 @@ class Recognizer {
     QString punctuate(QString text) {
         if (!text.isEmpty() && punctuation) {
             ++punctuationCalls;
-            const auto utf8 = text.toUtf8();
-            const auto *out = SherpaOfflinePunctuationAddPunct(punctuation, utf8.constData());
-            if (out) {
-                text = QString::fromUtf8(out);
-                SherpaOfflinePunctuationFreeText(out);
-            }
+            text = punctuation->punctuate(text);
         }
         return text;
     }

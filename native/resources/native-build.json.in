@@ -5,5 +5,7 @@
   "development": @VOCAL_DEVELOPMENT_JSON@,
   "sourceCommit": "@VOCAL_SOURCE_COMMIT@",
   "qtVersion": "6.8.3",
-  "sherpaVersion": "1.13.8"
+  "sherpaVersion": "1.13.8",
+  "llamaVersion": "0.5.0",
+  "llamaCommit": "d2e54583c7452353eb35d40431281f6ee984332f"
 }

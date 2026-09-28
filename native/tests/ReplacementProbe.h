@@ -15,15 +15,17 @@
 #include <windows.h>
 
 namespace ReplacementProbe {
+inline bool singleLineInput = false;
 inline QString prefix() { return "已有内容（保留）\n"; }
 inline QString suffix() { return "\n后面的内容（保留）"; }
-inline QString original() { return QString("旧的识别内容重复测试 ").repeated(80) + "\né👩‍💻 旧结尾"; }
-inline QString revised() { return QString("整理后的完整内容 ").repeated(75) + "\nè👩‍🔬 新结尾"; }
+inline QString original() { return singleLineInput ? QString("今天晴天，明天也晴天。") : QString("旧的识别内容重复测试 ").repeated(80) + "\né👩‍💻 旧结尾"; }
+inline QString revised() { return singleLineInput ? QString("今天晴天，明天可能下雨。") : QString("整理后的完整内容 ").repeated(75) + "\nè👩‍🔬 新结尾"; }
 inline QString normalize(QString text) { return text.replace("\r\n", "\n").replace('\r', '\n'); }
 inline void report(const QJsonObject &object) {
     std::cout << QJsonDocument(object).toJson(QJsonDocument::Compact).constData() << std::endl;
 }
 inline int fixture(QApplication &app, bool native, bool moved) {
+    singleLineInput = app.arguments().contains("--unicode");
     QTextEdit field;
     field.setWindowTitle("Vocal temporary replacement test");
     field.resize(600, 240);
@@ -74,7 +76,8 @@ inline int fixture(QApplication &app, bool native, bool moved) {
     QTimer::singleShot(15000, &app, &QApplication::quit);
     return app.exec();
 }
-inline int run(QApplication &app, const QString &kind, bool moved) {
+inline int run(QApplication &app, const QString &kind, bool moved, bool unicode = false) {
+    singleLineInput = unicode;
     auto *clipboard = QGuiApplication::clipboard();
     auto previousClipboard = std::make_unique<QMimeData>();
     if (const auto *old = clipboard->mimeData())
@@ -86,10 +89,12 @@ inline int run(QApplication &app, const QString &kind, bool moved) {
     });
     QProcess child;
     QStringList args{"--replacement-fixture", kind};
+    if (unicode) args.append("--unicode");
     if (moved) args.append("--replacement-moved");
     child.start(app.applicationFilePath(), args);
     if (!child.waitForStarted(3000)) return 1;
     QByteArray pending;
+    QJsonObject lastObservation;
     auto await = [&](const QString &key, int timeout) {
         QElapsedTimer deadline; deadline.start();
         while (deadline.elapsed() < timeout) {
@@ -98,6 +103,7 @@ inline int run(QApplication &app, const QString &kind, bool moved) {
                 const int end = pending.indexOf('\n');
                 const auto row = QJsonDocument::fromJson(pending.left(end)).object();
                 pending.remove(0, end + 1);
+                if (row.contains("characters")) lastObservation = row;
                 if (row.contains(key) && (row[key].isString() || row[key].toBool())) return row;
             }
             QTest::qWait(10);
@@ -116,8 +122,9 @@ inline int run(QApplication &app, const QString &kind, bool moved) {
     for (int i = 0; i < 30 && platform->target() != window; ++i) QTest::qWait(10);
     TextOutput output(platform.get());
     QString error;
+    QObject::connect(&output, &TextOutput::failed, &app, [&](const QString &detail) { error = detail; });
     QGuiApplication::clipboard()->setText("Vocal probe clipboard sentinel");
-    QJsonObject config{{"injectionStrategy", "auto"}, {"restoreClipboard", true}};
+    QJsonObject config{{"injectionStrategy", unicode ? "unicode" : "auto"}, {"restoreClipboard", true}};
     output.begin(window);
     const bool initial = window && output.update(original(), config, 1500, &error) && !await("oldMatches", 3000).isEmpty();
     QElapsedTimer timer; timer.start();
@@ -126,13 +133,14 @@ inline int run(QApplication &app, const QString &kind, bool moved) {
     const double ms = timer.nsecsElapsed() / 1.e6;
     QTest::qWait(250);
     const bool restored = QGuiApplication::clipboard()->text() == "Vocal probe clipboard sentinel";
-    report({{"kind", kind}, {"movedCaret", moved}, {"initialInserted", initial}, {"replaced", replaced},
+    report({{"kind", kind}, {"unicode", unicode}, {"movedCaret", moved}, {"initialInserted", initial}, {"replaced", replaced},
             {"exactReplacement", !result.isEmpty()}, {"selectionMethod", platform->property("replacementSelectionMethod").toString()},
             {"elapsedMs", ms}, {"clipboardRestored", restored}, {"oldCharacters", original().size()},
             {"newCharacters", revised().size()}, {"error", error}});
     if (!initial) report({{"activationAccepted", bool(activated)}, {"target", QString::number(window)},
                          {"foreground", QString::number(platform->target())}, {"fixtureVisible", bool(IsWindowVisible(hwnd))},
-                         {"fixtureExit", child.exitCode()}, {"stderr", QString::fromUtf8(child.readAllStandardError()).right(1200)}});
+                         {"fixtureExit", child.exitCode()}, {"observation", lastObservation},
+                         {"stderr", QString::fromUtf8(child.readAllStandardError()).right(1200)}});
     child.kill(); child.waitForFinished();
     return initial && (moved ? !replaced : !result.isEmpty() && restored) ? 0 : 2;
 }

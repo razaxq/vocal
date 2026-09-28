@@ -23,6 +23,7 @@ class TextOutput : public QObject {
     void finishPending();
     void restoreClipboard();
     bool apply(const QString &text, const QJsonObject &settings, int replaceLimit, QString *error);
+    void blockOutput(const QString &reason);
     QTimer m_settleTimer;
     QElapsedTimer m_pendingTime;
     bool m_waiting = false, m_hasQueued = false, m_beginQueued = false;
@@ -34,6 +35,7 @@ class TextOutput : public QObject {
     Platform *m_platform;
     quintptr m_target = 0;
     QString m_inserted;
+    QString m_blockedReason;
     quint64 m_clipboardRevision = 0;
     quint64 m_ownedClipboardRevision = 0;
     QTimer m_restoreClipboardTimer;

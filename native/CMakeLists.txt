@@ -19,6 +19,7 @@ if(MSVC)
 endif()
 find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Widgets Quick QuickControls2 Multimedia Network Test)
 qt_standard_project_setup(REQUIRES 6.8)
+include(cmake/Llama.cmake)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 qt_add_library(vocal_core STATIC
@@ -30,9 +31,11 @@ qt_add_library(vocal_core STATIC
     src/TextCleanup.cpp src/TextCleanup.h
     src/ModelManager.cpp src/ModelManager.h
     src/Dictionary.cpp src/Dictionary.h src/CorrectionWorker.cpp src/CorrectionWorker.h
+    src/SentenceCorrection.cpp src/SentenceCorrection.h
     src/WorkerProcess.cpp src/WorkerProcess.h src/TextOutput.cpp src/TextOutput.h src/LlmService.cpp src/LlmService.h
     src/ModelCatalog.cpp src/ModelCatalog.h
     src/SpeechWorker.cpp src/SpeechWorker.h
+    src/PunctuationModel.cpp src/PunctuationModel.h
     src/StreamWorker.cpp src/StreamWorker.h
     src/DesktopServices.cpp src/DesktopServices.h
     src/Platform.h src/TriggerController.cpp src/TriggerController.h)
@@ -49,6 +52,8 @@ else()
 endif()
 
 qt_add_executable(vocal-native src/main.cpp src/AppController.cpp src/AppController.h)
+target_sources(vocal-native PRIVATE src/SentenceWorker.cpp src/SentenceWorker.h)
+target_link_libraries(vocal-native PRIVATE llama)
 qt_add_resources(vocal-native build_info PREFIX "/vocal" BASE "${CMAKE_CURRENT_BINARY_DIR}"
     FILES "${CMAKE_CURRENT_BINARY_DIR}/native-build.json")
 target_compile_definitions(vocal-native PRIVATE VOCAL_APP_VERSION="${VOCAL_APP_VERSION}")

@@ -1,5 +1,6 @@
 #include "AppController.h"
 #include "CorrectionWorker.h"
+#include "SentenceWorker.h"
 #include "SpeechWorker.h"
 #include "StreamWorker.h"
 #include "WindowActivation.h"
@@ -40,8 +41,12 @@ int main(int argc, char *argv[]) {
             QCoreApplication app(argc, argv);
             if (app.arguments().contains("--stream-worker"))
                 return runStreamWorker(app.arguments());
-            if (app.arguments().contains("--correction-worker"))
+            if (app.arguments().contains("--correction-worker")) {
+                const int at = app.arguments().indexOf("--model-id");
+                if (at >= 0 && app.arguments().value(at + 1) == "cec3-4b-q4")
+                    return runSentenceWorker(app.arguments());
                 return runCorrectionWorker(app.arguments());
+            }
             return runSpeechWorker(app.arguments());
         }
     }

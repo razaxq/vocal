@@ -279,7 +279,9 @@ AppController::AppController(QString dataDirectory, QString modelDirectory, bool
             QString corrected;
             // Keep cleanup boundaries: a filler removed at the beginning of a
             // segment must not reappear in the middle of the final transcript.
-            if (contextText.size() == m_correctionRaw.size()) {
+            if (m_catalog.find(m_settings.values()["correctionModel"].toString())["kind"] == "correction-gguf") {
+                corrected = contextText; // Sentence models can insert/delete characters.
+            } else if (contextText.size() == m_correctionRaw.size()) {
                 corrected = cleanupSpeechSegments(contextText, m_correctionRanges, m_settings.values());
             }
             m_debug.record("cleanup.context", {{"source", event["text"]}, {"text", corrected}});
@@ -466,6 +468,9 @@ QString AppController::modelFailure(const QString &role, const QString &detail) 
 void AppController::loadRole(const QString &key) {
     if (!serviceEnabled() || m_startupGate.pending()) {
         updateState();
+        // Selection is persisted even while workers stay unloaded. Refresh the
+        // selected row independently of worker loading/state notifications.
+        emit modelsChanged();
         return;
     }
     auto *worker = key == "modelId" ? &m_offline : key == "streamingModel" ? &m_stream : &m_corrector;
@@ -1030,7 +1035,8 @@ void AppController::pump() {
             }
         }
         if (job.stage == "correct" && !m_correctionJob) {
-            if (config["correctionModel"] == "none" || m_corrector.state() == "error" ||
+            if (config["correctionModel"] == "none" ||
+                m_catalog.find(config["correctionModel"].toString())["kind"] == "correction-gguf" || m_corrector.state() == "error" ||
                 m_corrector.state() == "unloaded" || job.raw.isEmpty()) {
                 job.text = cleanupSpeech(job.raw, config);
                 m_debug.record("correction.skipped", {{"id", job.id}, {"state", m_corrector.state()},
@@ -1092,16 +1098,21 @@ void AppController::completeSession() {
     m_partial.clear();
     const auto config = m_settings.values();
     if (!m_finalCorrectionDone) {
+        const bool sentence = m_catalog.find(config["correctionModel"].toString())["kind"] == "correction-gguf";
+        if (sentence && !m_unpunctuated.isEmpty() && m_corrector.state() == "loading") {
+            // WorkerProcess owns the startup deadline and fails back to this pipeline.
+            return;
+        }
         if (config["correctionModel"] != "none" && !m_unpunctuated.isEmpty() && m_corrector.ready()) {
             const int id = ++m_request;
             if (m_corrector.send({{"type", "correct"}, {"id", id},
-                                 {"text", m_correctionRaw}, {"previousText", m_correctionSeed},
+                                 {"text", sentence ? m_unpunctuated : m_correctionRaw}, {"previousText", m_correctionSeed},
                                  {"contextOnly", true}, {"debugTrace", m_debug.active()},
                                  {"hotwords", config["hotwords"]}, {"dictionaryEnabled", config["dictionaryEnabled"]},
                                  {"fullContext", true}})) {
                 m_finalCorrectionJob = id;
-                emit contextCorrectionRequested(m_correctionRaw);
-                m_watchdog.start(qBound(60000, ((m_unpunctuated.size() + 95) / 96) * 2500 + 10000, 300000));
+                emit contextCorrectionRequested(sentence ? m_unpunctuated : m_correctionRaw);
+                m_watchdog.start(sentence ? 130000 : qBound(60000, ((m_unpunctuated.size() + 95) / 96) * 2500 + 10000, 300000));
                 updateState();
                 return;
             }
@@ -1175,6 +1186,12 @@ void AppController::insertText(const QString &text, bool final) {
         {"busy", m_output.busy()}, {"error", error}});
 }
 void AppController::cancelRecording() {
+    if (m_finalCorrectionJob &&
+        m_catalog.find(m_settings.values()["correctionModel"].toString())["kind"] == "correction-gguf") {
+        m_loadingRoles = true;
+        m_corrector.stop(); // Do not leave cancelled generation ahead of the next session.
+        m_loadingRoles = false;
+    }
     m_contextWindow.reset();
     m_debug.finish("cancelled", {{"raw", m_raw}, {"text", result()}, {"error", m_error}});
     m_waitingOutput = false;

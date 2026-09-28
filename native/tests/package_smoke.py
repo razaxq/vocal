@@ -35,7 +35,7 @@ with tempfile.TemporaryDirectory(prefix='vocal-deployment-') as temp:
     with zipfile.ZipFile(archives[0]) as archive:
         names = archive.namelist()
         assert all('..' not in Path(name).parts and not Path(name).is_absolute() for name in names)
-        assert not any(name.lower().endswith(('.onnx', '.node', 'base.dict.yaml', 'electron.exe', 'node.exe')) for name in names)
+        assert not any(name.lower().endswith(('.onnx', '.gguf', '.node', 'base.dict.yaml', 'electron.exe', 'node.exe')) for name in names)
         assert not any('node_modules' in name for name in names)
         archive.extractall(directory)
     marker = json.loads((directory / 'native-release.json').read_text(encoding='utf-8-sig'))
@@ -45,6 +45,7 @@ with tempfile.TemporaryDirectory(prefix='vocal-deployment-') as temp:
     assert (dist / f'Vocal-Native-Setup-{version}.exe').is_file()
     assert (directory / 'resources/dictionaries/rime-ice/catalog.json').is_file()
     assert (directory / 'licenses/LGPL-3.0-only.txt').is_file()
+    assert (directory / 'licenses/llama-MIT.txt').is_file()
     assert (directory / 'plugins/platforms/qwindows.dll').is_file()
     assert not (directory / 'platforms').exists()
     app = directory / 'vocal-native.exe'

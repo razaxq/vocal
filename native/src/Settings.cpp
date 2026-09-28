@@ -143,7 +143,7 @@ bool Settings::set(const QString &key, const QJsonValue &value, QString *error) 
         {"cleanupLevel", {"off", "light", "standard"}}, {"injectionStrategy", {"auto", "unicode", "clipboard"}},
         {"injectMode", {"final", "preview"}}, {"overlayTextMode", {"all", "latest", "none"}},
         {"theme", {"system", "light", "dark"}}, {"consolidationMode", {"off", "onFinish", "rolling"}},
-        {"correctionModel", {"none", "macbert4csc", "bert-chinese-int8"}}};
+        {"correctionModel", {"none", "macbert4csc", "bert-chinese-int8", "cec3-4b-q4"}}};
     if (choices.contains(key) && !choices[key].contains(value.toString())) return invalid();
     if (value.isArray())
         for (auto entry : value.toArray())

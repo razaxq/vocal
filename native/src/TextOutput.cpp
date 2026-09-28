@@ -30,6 +30,11 @@ void TextOutput::begin(quintptr target) {
     }
     m_target = target;
     m_inserted.clear();
+    m_blockedReason.clear();
+}
+void TextOutput::blockOutput(const QString &reason) {
+    m_target = 0;
+    m_blockedReason = reason;
 }
 void TextOutput::settle() {
     if (!m_waiting) return;
@@ -43,9 +48,11 @@ void TextOutput::settle() {
     if (!focused || m_pendingTime.elapsed() >= 2000) {
         const bool superseded = m_beginQueued;
         if (!superseded) m_hasQueued = false;
-        m_target = 0;
+        const QString reason = focused ? "未能确认文字输入，结果已保留，可从历史中复制"
+                                       : "焦点已变化，结果已保留，可从历史中复制";
+        blockOutput(reason);
         finishPending();
-        if (!superseded) emit failed("未能确认文字输入，结果已保留，可从历史中复制");
+        if (!superseded) emit failed(reason);
     }
 }
 void TextOutput::finishPending() {
@@ -57,6 +64,7 @@ void TextOutput::finishPending() {
         m_beginQueued = false;
         m_target = m_nextTarget;
         m_inserted.clear();
+        m_blockedReason.clear();
     }
     if (m_hasQueued) {
         m_hasQueued = false;
@@ -97,11 +105,16 @@ bool TextOutput::update(const QString &text, const QJsonObject &settings, int re
     return apply(text, settings, replaceLimit, error);
 }
 bool TextOutput::apply(const QString &text, const QJsonObject &settings, int replaceLimit, QString *error) {
+    error->clear();
     if (text == m_inserted)
         return true;
+    if (!m_blockedReason.isEmpty()) {
+        *error = m_blockedReason;
+        return false;
+    }
     if (!m_target || m_platform->target() != m_target) {
-        m_target = 0;
-        *error = "焦点已变化，结果已保留，可从历史中复制";
+        blockOutput("焦点已变化，结果已保留，可从历史中复制");
+        *error = m_blockedReason;
         return false;
     }
     if (!m_platform->beginTextInput(m_target, settings["triggerOwned"].toBool(), error))
@@ -124,7 +137,10 @@ bool TextOutput::apply(const QString &text, const QJsonObject &settings, int rep
         return false;
     }
     if (remove && !m_platform->selectPreviousText(m_target, m_inserted.mid(common), error)) {
-        m_target = 0; // A failed/partial selection must never be retried blindly.
+        // A failed/partial selection must never be retried blindly. Preserve
+        // its cause for subsequent previews/final output; it is not necessarily focus loss.
+        if (error->isEmpty()) *error = "未能替换预览文字，结果已保留，可从历史中复制";
+        blockOutput(*error);
         m_restoreClipboardTimer.stop();
         m_clipboardBackup.reset();
         QGuiApplication::clipboard()->setText(text);
@@ -133,7 +149,8 @@ bool TextOutput::apply(const QString &text, const QJsonObject &settings, int rep
     const auto tail = text.mid(common);
     if (tail.isEmpty()) {
         if (remove && !m_platform->erase(m_target, 1, error)) {
-            m_target = 0;
+            if (error->isEmpty()) *error = "未能替换预览文字，结果已保留，可从历史中复制";
+            blockOutput(*error);
             return false;
         }
         trackInput(text);
@@ -153,7 +170,8 @@ bool TextOutput::apply(const QString &text, const QJsonObject &settings, int rep
     if (ok) {
         trackInput(text);
     } else {
-        m_target = 0;
+        if (error->isEmpty()) *error = "文字输入失败，结果已保留，可从历史中复制";
+        blockOutput(*error);
         m_restoreClipboardTimer.stop();
         m_clipboardBackup.reset();
         QGuiApplication::clipboard()->setText(text);

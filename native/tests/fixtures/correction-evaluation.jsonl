@@ -1,0 +1,11 @@
+{"id":"typo-idiom","kind":"synthetic","text":"对待每一项工作都要一丝不够。","reference":"对待每一项工作都要一丝不苟。"}
+{"id":"typo-health","kind":"synthetic","text":"他的身体很建康。","reference":"他的身体很健康。"}
+{"id":"typo-reading","kind":"synthetic","text":"他正在阅渎一本有趣的小说。","reference":"他正在阅读一本有趣的小说。"}
+{"id":"user-lazy","kind":"user-reported","text":"完全就是给拦柜用的","reference":"完全就是给懒鬼用的"}
+{"id":"correct-weather","kind":"synthetic-correct","text":"今天天气很好，我们准备去公园散步。","reference":"今天天气很好，我们准备去公园散步。"}
+{"id":"correct-name","kind":"synthetic-correct","text":"张晓明正在调试 Vocal，版本是 v1.0.7。","reference":"张晓明正在调试 Vocal，版本是 v1.0.7。","hotwords":["张晓明","Vocal"]}
+{"id":"correct-number","kind":"synthetic-correct","text":"请支付一百二十三元。","reference":"请支付一百二十三元。"}
+{"id":"correct-pronoun","kind":"synthetic-correct","text":"她的身体很健康。","reference":"她的身体很健康。"}
+{"id":"correct-code","kind":"synthetic-correct","text":"代码是 `print(123)`，价格是 123.45 元。","reference":"代码是 `print(123)`，价格是 123.45 元。"}
+{"id":"correct-english","kind":"synthetic-correct","text":"This sentence should remain unchanged.","reference":"This sentence should remain unchanged."}
+{"id":"unlabelled-user-preview","kind":"user-reported-unlabelled","text":"预览使用雷击原文重新生成标列，不重复加工加标点的文字，更新时保留未变前缀。"}

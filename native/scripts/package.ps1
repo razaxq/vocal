@@ -59,6 +59,8 @@ New-Item -ItemType Directory -Path $licenses -Force | Out-Null
 Copy-Item -LiteralPath "$repo/LICENSE" -Destination "$licenses/Vocal-MIT.txt"
 Copy-Item -LiteralPath "$repo/native/vendor/sherpa-onnx/LICENSE" -Destination "$licenses/sherpa-onnx-Apache-2.0.txt"
 Copy-Item -LiteralPath "$repo/native/vendor/onnxruntime/LICENSE" -Destination "$licenses/onnxruntime-MIT.txt"
+Copy-Item -LiteralPath "$build/llama-MIT.txt" -Destination "$licenses/llama-MIT.txt"
+Copy-Item -LiteralPath "$build/llama-notices" -Destination "$licenses/llama-notices" -Recurse
 Copy-Item -LiteralPath "$repo/native/THIRD-PARTY.md" -Destination $licenses
 Copy-Item -LiteralPath "$repo/native/vendor/qt/LGPL-3.0-only.txt" -Destination $licenses
 Copy-Item -LiteralPath "$repo/resources/dictionaries/rime-ice/LICENSE" -Destination "$licenses/GPL-3.0.txt"

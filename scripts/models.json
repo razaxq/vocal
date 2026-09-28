@@ -286,6 +286,38 @@
           "sha256": "45bbac6b341c319adc98a532532882e91a9cefc0329aa57bac9ae761c27b291c"
         }
       ]
+    },
+    {
+      "id": "cec3-4b-q4",
+      "name": "ChineseErrorCorrector3 · 句子纠错",
+      "nameEn": "ChineseErrorCorrector3 · Sentence correction",
+      "langs": "中文",
+      "langsEn": "Chinese",
+      "note": "实验功能；结束录音后纠正错字与语法，CPU 运行较慢",
+      "noteEn": "Experimental; corrects spelling and grammar after recording; slower on CPU",
+      "kind": "correction-gguf",
+      "correctionMode": "sentence",
+      "url": "https://huggingface.co/mradermacher/ChineseErrorCorrector3-4B-GGUF/resolve/81f4eeb8e7c0352026bf2a7da9cdd82921915801/ChineseErrorCorrector3-4B.Q4_K_M.gguf",
+      "dir": "cec3-4b-q4",
+      "approxMB": 2382,
+      "downloadBytes": 2497276576,
+      "installedBytes": 2497276576,
+      "archive": "files",
+      "files": {
+        "model": "model.gguf"
+      },
+      "prune": [],
+      "license": "Apache-2.0",
+      "source": "https://huggingface.co/twnlp/ChineseErrorCorrector3-4B",
+      "quantizationSource": "https://huggingface.co/mradermacher/ChineseErrorCorrector3-4B-GGUF",
+      "downloads": [
+        {
+          "file": "model.gguf",
+          "url": "https://huggingface.co/mradermacher/ChineseErrorCorrector3-4B-GGUF/resolve/81f4eeb8e7c0352026bf2a7da9cdd82921915801/ChineseErrorCorrector3-4B.Q4_K_M.gguf",
+          "bytes": 2497276576,
+          "sha256": "cb86bc985c7dd6794daaca8b4ca4bb73672ed96655fd1f39b795cb27720041d7"
+        }
+      ]
     }
   ]
 }

@@ -28,7 +28,7 @@ int main(int argc, char **argv) {
                                           args.contains("--replacement-moved"));
     if (args.contains("--replace"))
         return ReplacementProbe::run(app, args.value(args.indexOf("--replace") + 1, "native"),
-                                      args.contains("--replacement-moved"));
+                                      args.contains("--replacement-moved"), args.contains("--unicode"));
     if (args.contains("--hooks")) {
         for (int i = 0; i < 3; ++i) {
             auto platform = createPlatform();

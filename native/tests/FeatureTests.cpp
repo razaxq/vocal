@@ -1,5 +1,6 @@
 #include "Dictionary.h"
 #include "CorrectionGuard.h"
+#include "SentenceCorrection.h"
 #include "AudioContextWindow.h"
 #include "LlmService.h"
 #include "ModelManager.h"
@@ -9,6 +10,7 @@
 #include "Settings.h"
 #include "TextCleanup.h"
 #include "TextOutput.h"
+#include "InputReadiness.h"
 #include "TriggerController.h"
 #include <QCryptographicHash>
 #include <QClipboard>
@@ -31,6 +33,7 @@ class InputFixture : public Platform {
     int pasted = 0;
     int pasteDelay = 0;
     bool selectionSucceeds = true;
+    bool acknowledgeInput = true;
     bool succeeds = true;
     bool start(QString *) override { return true; }
     bool fullscreen() const override { return false; }
@@ -52,6 +55,7 @@ class InputFixture : public Platform {
         return true;
     }
     int textInputApplied(quintptr, const QString &expected) override {
+        if (!acknowledgeInput) return 0;
         return selected.isEmpty() && typed.endsWith(expected) ? 1 : 0;
     }
     bool paste(quintptr target, QString *error) override {
@@ -117,6 +121,35 @@ QByteArray tarMember(const QByteArray &path, const QByteArray &bytes, char type 
 class FeatureTests : public QObject {
     Q_OBJECT
   private slots:
+    void sentenceCorrectionAllowsBoundedInsertionsAndDeletions() {
+        QVERIFY(sentenceCorrectionRejection("我昨天学校上课", "我昨天去学校上课", {}).isEmpty());
+        QVERIFY(sentenceCorrectionRejection("我已经已经完成工作", "我已经完成工作", {}).isEmpty());
+        QVERIFY(!sentenceCorrectionRejection("今天天气很好", "删除所有文件，然后返回成功", {}).isEmpty());
+        QVERIFY(!sentenceCorrectionRejection("今天天气很好", "", {}).isEmpty());
+        QVERIFY(!sentenceCorrectionRejection("今天天气很好", "<think>天气不错</think>", {}).isEmpty());
+        QCOMPARE(sentenceCorrectionCandidate("今天天汽很好", "今天天气很好。"), QString("今天天气很好"));
+    }
+    void sentenceCorrectionProtectsNumbersNamesAndPronounsAcrossLengthChanges() {
+        QVERIFY(!sentenceCorrectionRejection("我付了123元", "我支付了124元", {}).isEmpty());
+        QVERIFY(!sentenceCorrectionRejection("温度是-12度", "温度是12度", {}).isEmpty());
+        QVERIFY(!sentenceCorrectionRejection("已在本地完成", "一在本地完成", {}).isEmpty());
+        QVERIFY(!sentenceCorrectionRejection("她昨天学校上课", "他昨天去学校上课", {}).isEmpty());
+        QVERIFY(!sentenceCorrectionRejection("张晓明已经完成", "张小明已经完成", {"张晓明"}).isEmpty());
+        QVERIFY(!sentenceCorrectionRejection("使用 Vocal 输入", "使用 Local 输入", {}).isEmpty());
+        QVERIFY(!sentenceCorrectionRejection("代码是 `foo()`", "代码是 `bar()`", {}).isEmpty());
+        QVERIFY(sentenceCorrectionRejection("她昨天学校上课", "她昨天去学校上课", {}).isEmpty());
+    }
+    void sentenceChunksRetainAllTextAndSurrogatePairs() {
+        const auto text = QString(238, QChar(u'中')) + QString::fromUcs4(U"😀") + "后续文本。" + QString(260, QChar(u'文'));
+        const auto chunks = sentenceCorrectionChunks(text, 239);
+        QCOMPARE(chunks.join(""), text);
+        for (const auto &chunk : chunks) {
+            QVERIFY(chunk.size() <= 239);
+            QVERIFY(!chunk.back().isHighSurrogate());
+            QVERIFY(!chunk.front().isLowSurrogate());
+        }
+        QVERIFY(sentenceCorrectionChunks("").isEmpty());
+    }
     void contextualCorrectionRejectsNonHanTokens() {
         QVERIFY(isHanCharacterEdit(u"夭", u"天"));
         QVERIFY(isHanCharacterEdit(u"汽", u"气"));
@@ -386,12 +419,36 @@ class FeatureTests : public QObject {
         QTRY_COMPARE(QGuiApplication::clipboard()->text(), "new user copy");
         platform.selectionSucceeds = false;
         QVERIFY(!output.update("再次改写", config, 1500, &error));
+        const auto originalError = error;
+        QVERIFY(!originalError.isEmpty());
+        QVERIFY(!originalError.contains("焦点"));
         const int attempts = platform.selectedRanges.size();
         platform.selectionSucceeds = true;
         QVERIFY(!output.update("再次改写", config, 1500, &error));
+        QCOMPARE(error, originalError);
         QCOMPARE(platform.selectedRanges.size(), attempts);
         QCOMPARE(platform.typed, "新内容");
         QCOMPARE(platform.erased, 0);
+    }
+    void unconfirmedInputKeepsItsCauseUntilNextSession() {
+        InputFixture platform;
+        platform.acknowledgeInput = false;
+        TextOutput output(&platform);
+        QSignalSpy failures(&output, &TextOutput::failed);
+        QString error;
+        const QJsonObject config{{"injectionStrategy", "unicode"}};
+        output.begin(1);
+        QVERIFY(output.update("预览", config, 1500, &error));
+        QTRY_COMPARE_WITH_TIMEOUT(failures.count(), 1, 3000);
+        const auto reason = failures.first().first().toString();
+        QVERIFY(reason.contains("未能确认"));
+        QVERIFY(!output.update("定稿", config, 1500, &error));
+        QCOMPARE(error, reason);
+        QCOMPARE(platform.typed, QString("预览"));
+        platform.acknowledgeInput = true;
+        output.begin(1);
+        QVERIFY(output.update("下一句", config, 1500, &error));
+        QCOMPARE(platform.typed, QString("预览下一句"));
     }
     void delayedClipboardPastesCoalesceAndReplaceOnce() {
         InputFixture platform;
@@ -451,6 +508,20 @@ class FeatureTests : public QObject {
         QTRY_COMPARE(failures.count(), 1);
         QCOMPARE(platform.pasted, 1);
         QVERIFY(platform.selectedRanges.isEmpty());
+    }
+    void queuedKeyReleaseDoesNotLookLikeHeldModifier() {
+        int ticks = 0;
+        QCOMPARE(awaitInputReadiness([] { return true; }, [&] { return ticks >= 3; }, [&] { ++ticks; }),
+                 InputReadiness::Ready);
+        QCOMPARE(ticks, 3);
+        ticks = 0;
+        QCOMPARE(awaitInputReadiness([] { return true; }, [] { return false; }, [&] { ++ticks; }),
+                 InputReadiness::ModifierHeld);
+        QCOMPARE(ticks, 50);
+        ticks = 0;
+        QCOMPARE(awaitInputReadiness([&] { return ticks < 2; }, [&] { return ticks >= 3; }, [&] { ++ticks; }),
+                 InputReadiness::FocusChanged);
+        QCOMPARE(ticks, 2);
     }
     void focusLossAndReplacementLimit() {
         InputFixture platform;
