@@ -5,6 +5,21 @@
 #include <QRegularExpression>
 #include <QSet>
 
+namespace {
+bool validCatalog(const QJsonObject &json) {
+    // version is the data revision incremented by sync-rime.mjs, not a schema ID.
+    if (json["version"].toInt() <= 0)
+        return false;
+    const auto words = json["words"].toArray(), readings = json["readings"].toArray();
+    if (words.isEmpty() || words.size() != readings.size())
+        return false;
+    for (int i = 0; i < words.size(); ++i)
+        if (words[i].toString().isEmpty() || readings[i].toString().isEmpty())
+            return false;
+    return true;
+}
+}
+
 QVariantMap Dictionary::inspect(const QString &path) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly) || file.size() > 64 * 1024 * 1024)
@@ -12,15 +27,12 @@ QVariantMap Dictionary::inspect(const QString &path) {
     auto json = QJsonDocument::fromJson(file.readAll()).object();
     if (json.contains("catalog"))
         json = json["catalog"].toObject();
-    const auto words = json["words"].toArray(), readings = json["readings"].toArray();
-    if (words.isEmpty() || words.size() != readings.size() || json["version"].toInt() != 3)
+    if (!validCatalog(json))
         return {};
-    for (int i = 0; i < words.size(); ++i)
-        if (words[i].toString().isEmpty() || readings[i].toString().isEmpty())
-            return {};
+    const auto count = json["words"].toArray().size();
     json.remove("words");
     json.remove("readings");
-    json["count"] = words.size();
+    json["count"] = count;
     return json.toVariantMap();
 }
 
@@ -31,17 +43,15 @@ bool Dictionary::load(const QString &path) {
     auto json = QJsonDocument::fromJson(file.readAll()).object();
     if (json.contains("catalog"))
         json = json["catalog"].toObject();
-    const auto words = json["words"].toArray(), readings = json["readings"].toArray();
-    if (words.isEmpty() || words.size() != readings.size() || !json["version"].isDouble())
+    if (!validCatalog(json))
         return false;
+    const auto words = json["words"].toArray(), readings = json["readings"].toArray();
     m_words.clear();
     m_readings.clear();
     m_byReading.clear();
     m_characters.clear();
     for (int i = 0; i < words.size(); ++i) {
         const auto word = words[i].toString(), raw = readings[i].toString();
-        if (word.isEmpty() || raw.isEmpty())
-            return false;
         m_words.append(word);
         m_readings.insert(word, raw.section('|', 0, 0));
         for (const auto &reading : raw.split('|'))

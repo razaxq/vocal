@@ -1,4 +1,5 @@
 #include "Dictionary.h"
+#include "DesktopServices.h"
 #include "CorrectionGuard.h"
 #include "SentenceCorrection.h"
 #include "AudioContextWindow.h"
@@ -579,12 +580,19 @@ class FeatureTests : public QObject {
         trigger.accept(2, false);
         QCOMPARE(released.size(), 2);
     }
+    void dictionaryCandidates_data() {
+        QTest::addColumn<int>("version");
+        QTest::newRow("bundled") << 3;
+        QTest::newRow("updated") << 4;
+        QTest::newRow("future-data-revision") << 25;
+    }
     void dictionaryCandidates() {
+        QFETCH(int, version);
         QTemporaryDir temp;
-        QFile file(temp.filePath("catalog.json"));
+        QFile file(temp.filePath("dictionary.json"));
         QVERIFY(file.open(QIODevice::WriteOnly));
         file.write(
-            QJsonDocument(QJsonObject{{"version", 3},
+            QJsonDocument(QJsonObject{{"version", version},
                                       {"words", QJsonArray{"懒鬼", "拦柜", "天气", "高兴", "高心"}},
                                       {"readings", QJsonArray{"lan gui", "lan gui", "tian qi", "gao xing", "gao xin"}}})
                 .toJson());
@@ -595,6 +603,41 @@ class FeatureTests : public QObject {
         QVERIFY(dictionary.similarSound("高兴", "高心"));
         QVERIFY(dictionary.retrieve("拦柜").contains("懒鬼"));
         QCOMPARE(Dictionary::inspect(file.fileName())["count"].toInt(), 5);
+        DesktopServices services(temp.path());
+        QCOMPARE(services.dictionaryPath(), file.fileName());
+        QCOMPARE(services.dictionaryInfo()["version"].toInt(), version);
+    }
+    void dictionaryInvalidCatalogs() {
+        QTemporaryDir temp;
+        const QJsonObject valid{{"version", 4}, {"words", QJsonArray{"懒鬼", "天气"}},
+                                {"readings", QJsonArray{"lan gui", "tian qi"}}};
+        auto write = [&](const QJsonObject &catalog) {
+            QFile file(temp.filePath("dictionary.json"));
+            if (!file.open(QIODevice::WriteOnly)) return false;
+            return file.write(QJsonDocument(catalog).toJson()) > 0;
+        };
+        QVERIFY(write(valid));
+        Dictionary dictionary;
+        QVERIFY(dictionary.load(temp.filePath("dictionary.json")));
+        QList<QJsonObject> invalid;
+        for (const auto &version : QList<QJsonValue>{0, -1, 3.5, "4", QJsonValue()}) {
+            auto catalog = valid;
+            catalog["version"] = version;
+            invalid.append(catalog);
+        }
+        for (const auto &readings : QList<QJsonArray>{QJsonArray{}, QJsonArray{"lan gui"},
+                                                     QJsonArray{"lan gui", ""}, QJsonArray{"lan gui", 1}}) {
+            auto catalog = valid;
+            catalog["readings"] = readings;
+            invalid.append(catalog);
+        }
+        for (const auto &catalog : invalid) {
+            QVERIFY(write(catalog));
+            QVERIFY(Dictionary::inspect(temp.filePath("dictionary.json")).isEmpty());
+            QVERIFY(!dictionary.load(temp.filePath("dictionary.json")));
+            QCOMPARE(dictionary.size(), 2);
+            QCOMPARE(dictionary.reading("天气"), QString("tian qi"));
+        }
     }
     void llmResponseGuards() {
         QCOMPARE(LlmService::guard("原始内容", ""), QString("原始内容"));

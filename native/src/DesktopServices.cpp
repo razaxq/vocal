@@ -52,6 +52,7 @@ void DesktopServices::updateDictionary() {
     if (m_downloadingDictionary)
         return;
     m_downloadingDictionary = true;
+    m_dictionary.remove("error");
     m_dictionary["updating"] = true;
     emit changed();
     QNetworkRequest request(
