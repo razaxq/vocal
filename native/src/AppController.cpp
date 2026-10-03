@@ -873,6 +873,10 @@ void AppController::frames(const QVector<float> &samples, int rate) {
             return;
     }
     queueStreamAudio(m_segmenter.pending());
+    if (m_segmenter.rejectedSamples() > 0) {
+        m_error = "连续录音已达到 120 秒上限，超出部分未处理，请分段继续录音";
+        emit changed();
+    }
     if (m_segmenter.atLimit() && !m_limitPending) {
         m_limitPending = true;
         const int generation = m_generation;
@@ -1389,29 +1393,43 @@ void AppController::saveHistory() {
                           {"duration", m_duration},
                           {"segments", m_segments},
                           {"target", m_platform->targetProcess(m_target)}};
-    m_history.prepend(row.toVariantMap());
-    if (m_history.size() > 200)
-        m_history.removeLast();
-    writeHistory();
+    auto next = m_history;
+    next.prepend(row.toVariantMap());
+    if (next.size() > 200)
+        next.removeLast();
+    if (!writeHistory(next)) {
+        // Keep newly recognized text available for copying even if storage fails.
+        m_history = next;
+        emit historyChanged();
+    }
 }
-void AppController::writeHistory() {
+bool AppController::writeHistory(const QVariantList &next) {
     QSaveFile file(QDir(m_settings.directory()).filePath("history.jsonl"));
     QByteArray bytes;
-    for (auto it = m_history.crbegin(); it != m_history.crend(); ++it)
+    for (auto it = next.crbegin(); it != next.crend(); ++it)
         bytes += QJsonDocument(QJsonObject::fromVariantMap(it->toMap())).toJson(QJsonDocument::Compact) + '\n';
-    if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit())
+    if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit()) {
         m_error = "历史记录保存失败";
+        emit changed();
+        return false;
+    }
+    m_history = next;
+    if (m_error == "历史记录保存失败") {
+        m_error.clear();
+        emit changed();
+    }
     emit historyChanged();
+    return true;
 }
 void AppController::deleteHistory(int index) {
     if (index < 0 || index >= m_history.size())
         return;
-    m_history.removeAt(index);
-    writeHistory();
+    auto next = m_history;
+    next.removeAt(index);
+    writeHistory(next);
 }
 void AppController::clearHistory() {
-    m_history.clear();
-    writeHistory();
+    writeHistory({});
 }
 QVariantMap AppController::statistics() const {
     int chars = 0, duration = 0;

@@ -5,6 +5,8 @@
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <QTimer>
+#include <QThread>
+#include <atomic>
 #include <QtEndian>
 #include <cstring>
 #include <stdexcept>
@@ -76,6 +78,12 @@ QByteArray vocabFromModel(const QByteArray &data) {
     return output;
 }
 } // namespace
+struct ModelManager::Verification {
+    std::atomic_bool cancelled{false};
+    bool valid = false;
+    // A cancelled job retains its own files until the reader has closed them.
+    std::shared_ptr<QTemporaryDir> stage;
+};
 ModelManager::ModelManager(QString root, QObject *parent, QJsonObject registry)
     : QObject(parent), m_catalog(std::move(root), std::move(registry)) {
     connect(&m_tar, &QProcess::readyReadStandardOutput, this, [this] {
@@ -171,7 +179,7 @@ void ModelManager::startNext() {
         return;
     }
     QDir().mkpath(m_catalog.root());
-    m_stage = std::make_unique<QTemporaryDir>(QDir(m_catalog.root()).filePath(".download-XXXXXX"));
+    m_stage = std::make_shared<QTemporaryDir>(QDir(m_catalog.root()).filePath(".download-XXXXXX"));
     if (!m_stage->isValid()) {
         fail("无法创建下载目录");
         return;
@@ -246,21 +254,46 @@ void ModelManager::next() {
             return;
         }
         if (item.contains("sha256")) {
-            m_phase = "verifying";
-            emit changed();
-            QFile file(m_file.fileName());
-            file.open(QIODevice::ReadOnly);
-            QCryptographicHash hash(QCryptographicHash::Sha256);
-            hash.addData(&file);
-            if (file.size() != qint64(item["bytes"].toDouble()) ||
-                hash.result().toHex() != item["sha256"].toString().toLatin1()) {
-                fail("模型校验失败，请重新下载");
-                return;
-            }
+            verify(item);
+            return;
         }
         ++m_index;
         next();
     });
+}
+void ModelManager::verify(const QJsonObject &item) {
+    const auto job = std::make_shared<Verification>();
+    job->stage = m_stage;
+    m_verification = job;
+    auto *thread = QThread::create([job, path = m_file.fileName(), item] {
+        QFile file(path);
+        if (job->cancelled || !file.open(QIODevice::ReadOnly) || file.size() != item["bytes"].toInteger())
+            return;
+        QCryptographicHash hash(QCryptographicHash::Sha256);
+        while (!file.atEnd()) {
+            if (job->cancelled) return;
+            const auto block = file.read(1024 * 1024);
+            if (block.isEmpty() || file.error() != QFileDevice::NoError) return;
+            hash.addData(block);
+        }
+        job->valid = !job->cancelled && hash.result().toHex() == item["sha256"].toString().toLatin1();
+    });
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    connect(thread, &QThread::finished, this, [this, job] {
+        // Cancellation/retry may already have started another job, even for
+        // the same model. Never let the old completion advance that download.
+        if (m_verification != job) return;
+        m_verification.reset();
+        if (!job->valid) {
+            fail("模型校验失败，请重新下载");
+            return;
+        }
+        ++m_index;
+        next();
+    });
+    m_phase = "verifying";
+    emit changed();
+    thread->start();
 }
 void ModelManager::extractNext() {
     if (m_index >= m_extract.size()) {
@@ -322,6 +355,10 @@ void ModelManager::commit() {
     }
 }
 void ModelManager::abortActive() {
+    if (m_verification) {
+        m_verification->cancelled = true;
+        m_verification.reset();
+    }
     if (m_reply) {
         auto *reply = m_reply.data();
         m_reply = nullptr;

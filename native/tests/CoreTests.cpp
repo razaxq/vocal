@@ -194,6 +194,48 @@ class CoreTests : public QObject {
         QVERIFY(!segmenter.atLimit());
         QVERIFY(segmenter.pending().isEmpty());
     }
+    void delayedPacketsPreserveAudioAcrossTheSegmentLimit() {
+        for (const int rate : {8000, 16000, 48000}) {
+            for (const bool automatic : {false, true}) {
+                QVector<float> audio(rate * 119, .1f);
+                audio += QVector<float>(rate / 2, 0.f);
+                audio += QVector<float>(rate, .2f);
+                QList<QVector<float>> reference;
+                for (const qsizetype packet : {qsizetype(rate / 50), qsizetype(rate * 119), audio.size()}) {
+                    AudioSegmenter segmenter;
+                    QList<QVector<float>> parts;
+                    for (qsizetype at = 0; at < audio.size(); at += packet)
+                        parts.append(segmenter.append(audio.mid(at, packet), rate, 400, automatic));
+                    QCOMPARE(segmenter.rejectedSamples(), 0);
+                    QVERIFY(!segmenter.atLimit());
+                    parts.append(segmenter.finish());
+                    QVector<float> joined;
+                    for (const auto &part : parts) {
+                        QVERIFY(part.size() <= rate * 120);
+                        joined += part;
+                    }
+                    QCOMPARE(joined, audio);
+                    if (reference.isEmpty()) reference = parts;
+                    else QCOMPARE(parts, reference);
+                }
+            }
+        }
+    }
+    void continuousOverflowIsReportedAndResetBetweenSessions() {
+        AudioSegmenter segmenter;
+        const int rate = 16000;
+        QVERIFY(segmenter.append(QVector<float>(rate * 121, .1f), rate, 400, true).isEmpty());
+        QVERIFY(segmenter.atLimit());
+        QCOMPARE(segmenter.rejectedSamples(), rate);
+        segmenter.append(QVector<float>(rate / 2, .2f), rate, 400, true);
+        QCOMPARE(segmenter.rejectedSamples(), rate * 3 / 2);
+        QCOMPARE(segmenter.finish().size(), rate * 120);
+        QCOMPARE(segmenter.rejectedSamples(), 0);
+        QVERIFY(!segmenter.atLimit());
+        const QVector<float> next(rate, .3f);
+        segmenter.append(next, rate, 400, true);
+        QCOMPARE(segmenter.finish(), next);
+    }
     void settingsPersistence() {
         QTemporaryDir dir;
         Settings settings(dir.path());

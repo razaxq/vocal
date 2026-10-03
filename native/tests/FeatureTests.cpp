@@ -714,6 +714,72 @@ class FeatureTests : public QObject {
         QCOMPARE(manager.models("offline")[0].toMap()["phase"].toString(), QString("cancelled"));
         QCOMPARE(done.size(), 0);
     }
+    void verificationKeepsEventLoopResponsiveAndIgnoresCancelledJobs() {
+        QTemporaryDir temp;
+        const QByteArray bytes(32 * 1024 * 1024, 'v');
+        QFile source(temp.filePath("source.bin"));
+        QVERIFY(source.open(QIODevice::WriteOnly));
+        QCOMPARE(source.write(bytes), bytes.size());
+        source.close();
+        const auto digest = QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
+        auto entry = [&](const QString &id) {
+            return QJsonObject{{"id", id}, {"dir", id}, {"archive", "files"},
+                {"files", QJsonObject{{"model", "model.bin"}}},
+                {"downloads", QJsonArray{QJsonObject{{"url", QUrl::fromLocalFile(source.fileName()).toString()},
+                    {"file", "model.bin"}, {"bytes", bytes.size()}, {"sha256", digest}}}}};
+        };
+        const auto root = temp.filePath("models");
+        ModelManager manager(root, nullptr, {{"offline", QJsonArray{entry("first"), entry("next")}}});
+        QSignalSpy done(&manager, &ModelManager::completed), failed(&manager, &ModelManager::failed);
+        bool cancellationScheduled = false, cancelledDuringVerification = false;
+        bool eventLoopRan = false;
+        connect(&manager, &ModelManager::changed, this, [&] {
+            if (manager.models("offline")[0].toMap()["phase"] != "verifying" || cancellationScheduled) return;
+            cancellationScheduled = true;
+            QTimer::singleShot(0, &manager, [&] {
+                cancelledDuringVerification = manager.models("offline")[0].toMap()["phase"] == "verifying";
+                manager.cancel("first");
+                manager.download("first");
+                eventLoopRan = true;
+            });
+        });
+        manager.download("first");
+        manager.download("next");
+        QTRY_COMPARE_WITH_TIMEOUT(done.size(), 2, 10000);
+        QVERIFY(eventLoopRan);
+        QVERIFY(cancelledDuringVerification);
+        QCOMPARE(failed.size(), 0);
+        QCOMPARE(done[0][0].toString(), QString("next"));
+        QCOMPARE(done[1][0].toString(), QString("first"));
+        QVERIFY(!manager.busy());
+        for (const auto &id : {"first", "next"}) {
+            QFile installed(QDir(root).filePath(QString(id) + "/model.bin"));
+            QVERIFY(installed.open(QIODevice::ReadOnly));
+            QCOMPARE(installed.readAll(), bytes);
+        }
+        QTRY_VERIFY(QDir(root).entryList({".download-*"}, QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty());
+        // Closing the manager during verification must release the reader and
+        // staging directory without touching a destroyed receiver.
+        const auto closingRoot = temp.filePath("closing");
+        auto closing = std::make_unique<ModelManager>(closingRoot, nullptr,
+            QJsonObject{{"offline", QJsonArray{entry("first")}}});
+        bool closeScheduled = false, closedDuringVerification = false;
+        int unexpectedCompletions = 0;
+        connect(closing.get(), &ModelManager::completed, this, [&] { ++unexpectedCompletions; });
+        connect(closing.get(), &ModelManager::changed, this, [&] {
+            if (!closing || closing->models("offline")[0].toMap()["phase"] != "verifying" || closeScheduled) return;
+            closeScheduled = true;
+            QTimer::singleShot(0, this, [&] {
+                closedDuringVerification = closing->models("offline")[0].toMap()["phase"] == "verifying";
+                closing.reset();
+            });
+        });
+        closing->download("first");
+        QTRY_VERIFY(!closing);
+        QVERIFY(closedDuringVerification);
+        QTRY_VERIFY(QDir(closingRoot).entryList(QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty());
+        QCOMPARE(unexpectedCompletions, 0);
+    }
 };
 QTEST_MAIN(FeatureTests)
 #include "FeatureTests.moc"

@@ -182,7 +182,7 @@ class AppController : public QObject {
     void endSession();
     void fail(const QString &message);
     void saveHistory();
-    void writeHistory();
+    bool writeHistory(const QVariantList &next);
     void sampleResources();
     void beginDebug(bool fixture = false);
     void debugPreview();

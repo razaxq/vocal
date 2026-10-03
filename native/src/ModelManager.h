@@ -28,6 +28,7 @@ class ModelManager : public QObject {
     void startNext();
     void abortActive();
     void next();
+    void verify(const QJsonObject &item);
     void extractNext();
     void commit();
     void fail(const QString &message);
@@ -36,7 +37,9 @@ class ModelManager : public QObject {
     QPointer<QNetworkReply> m_reply;
     QProcess m_tar;
     QFile m_file;
-    std::unique_ptr<QTemporaryDir> m_stage;
+    std::shared_ptr<QTemporaryDir> m_stage;
+    struct Verification;
+    std::shared_ptr<Verification> m_verification;
     QJsonObject m_entry;
     QList<QJsonObject> m_downloads;
     QStringList m_extract;
